@@ -8,9 +8,10 @@ class BaseImplementedStrategy(BaseStrategy):
     """
     Base class for implemented strategies with common utilities.
     """
-    def __init__(self, strategy_id, name):
+    def __init__(self, strategy_id, name, trigger_timeframe="1min"):
         super().__init__(strategy_id)
         self.name = name
+        self.trigger_timeframe = trigger_timeframe
         self.bars_held = {} # Code -> Count of bars held
         self.entry_price = {} # Code -> Entry Price
         self.highest_high = {} # Code -> Highest High since entry
@@ -43,7 +44,7 @@ class BaseImplementedStrategy(BaseStrategy):
 # Strategy 01: 三周期共振波段策略
 class Strategy01(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("01", "三周期共振波段")
+        super().__init__("01", "三周期共振波段", trigger_timeframe="60min")
         self.history = {}
 
     def on_bar(self, kline):
@@ -110,7 +111,7 @@ class Strategy01(BaseImplementedStrategy):
 # Strategy 02: 短线弱转强烂板战法
 class Strategy02(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("02", "短线弱转强烂板")
+        super().__init__("02", "短线弱转强烂板", trigger_timeframe="1min")
         self.history = {}
 
     def on_bar(self, kline):
@@ -129,7 +130,7 @@ class Strategy02(BaseImplementedStrategy):
 # Strategy 03: ETF行业轮动
 class Strategy03(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("03", "ETF行业轮动")
+        super().__init__("03", "ETF行业轮动", trigger_timeframe="D")
         self.history = {}
 
     def on_bar(self, kline):
@@ -167,14 +168,14 @@ class Strategy03(BaseImplementedStrategy):
 # Strategy 04: 龙头首阴反包
 class Strategy04(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("04", "龙头首阴反包")
+        super().__init__("04", "龙头首阴反包", trigger_timeframe="D")
     def on_bar(self, kline):
         return None
 
 # Strategy 05: 3N法则主升浪
 class Strategy05(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("05", "3N法则主升浪")
+        super().__init__("05", "3N法则主升浪", trigger_timeframe="30min")
         self.history = {}
 
     def on_bar(self, kline):
@@ -213,7 +214,7 @@ class Strategy05(BaseImplementedStrategy):
 # Strategy 06: 海豚交易法
 class Strategy06(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("06", "海豚交易法")
+        super().__init__("06", "海豚交易法", trigger_timeframe="1min")
         self.history = {}
 
     def on_bar(self, kline):
@@ -270,7 +271,7 @@ class Strategy06(BaseImplementedStrategy):
 # Strategy 07: 跳空交易系统
 class Strategy07(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("07", "跳空交易系统")
+        super().__init__("07", "跳空交易系统", trigger_timeframe="15min")
         self.history = {}
 
     def on_bar(self, kline):
@@ -322,7 +323,7 @@ class Strategy07(BaseImplementedStrategy):
 # Strategy 08: 神奇九转 (Magic 9)
 class Strategy08(BaseImplementedStrategy):
     def __init__(self):
-        super().__init__("08", "神奇九转")
+        super().__init__("08", "神奇九转", trigger_timeframe="1min")
         self.history = {}
 
     def on_bar(self, kline):

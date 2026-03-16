@@ -4,10 +4,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 from src.utils.config_loader import ConfigLoader
+from src.utils.indicators import Indicators
 
 class DataProvider:
     """
-    Data Provider using external API for 1-minute K-line data.
+    Data Provider using external API for multi-timeframe K-line data.
     """
     def __init__(self, api_key=None, base_url=None):
         cfg = ConfigLoader()
@@ -97,6 +98,95 @@ class DataProvider:
         df = df.dropna(subset=["dt", "open", "high", "low", "close"])
         df = df.drop_duplicates(subset=["dt"]).sort_values("dt").reset_index(drop=True)
         return df[["code", "dt", "open", "high", "low", "close", "vol", "amount"]]
+
+    def _normalize_ohlcv_df(self, df):
+        return self._normalize_minutes_df(df)
+
+    def _interval_table_name(self, interval):
+        mapping = {
+            "1min": "dat_1mins",
+            "5min": "dat_5mins",
+            "10min": "dat_10mins",
+            "15min": "dat_15mins",
+            "30min": "dat_30mins",
+            "60min": "dat_60mins",
+            "D": "dat_day"
+        }
+        return mapping.get(interval)
+
+    def _fetch_daily_data(self, code, start_time, end_time):
+        rows = []
+        for c in self._code_variants(code):
+            params = {
+                "codes": c,
+                "start_date": start_time.strftime("%Y-%m-%d"),
+                "end_date": end_time.strftime("%Y-%m-%d"),
+                "limit": 10000
+            }
+            response = self._request_get("/market/daily-bars/range", params, timeout=20)
+            if response is None:
+                continue
+            rows = self._extract_rows(response.json())
+            if rows:
+                break
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        if "trade_date" in df.columns and "dt" not in df.columns:
+            df = df.rename(columns={"trade_date": "dt"})
+        return self._normalize_ohlcv_df(df)
+
+    def _fetch_table_timeframe_data(self, code, start_time, end_time, interval):
+        table = self._interval_table_name(interval)
+        if not table:
+            return pd.DataFrame()
+        filters = [
+            f"code:eq:{code}",
+            f"trade_time:gte:{start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"trade_time:lte:{end_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        ]
+        candidate_filters = [
+            filters,
+            [f"code:eq:{code.replace('.SH','').replace('.SZ','')}", f"trade_time:gte:{start_time.strftime('%Y-%m-%d %H:%M:%S')}", f"trade_time:lte:{end_time.strftime('%Y-%m-%d %H:%M:%S')}"],
+            [f"ts_code:eq:{code}", f"trade_time:gte:{start_time.strftime('%Y-%m-%d %H:%M:%S')}", f"trade_time:lte:{end_time.strftime('%Y-%m-%d %H:%M:%S')}"],
+            [f"code:eq:{code}", f"dt:gte:{start_time.strftime('%Y-%m-%d %H:%M:%S')}", f"dt:lte:{end_time.strftime('%Y-%m-%d %H:%M:%S')}"]
+        ]
+        for fset in candidate_filters:
+            params = {
+                "limit": 200000,
+                "order_by": "trade_time",
+                "order_dir": "asc",
+                "filter": fset
+            }
+            response = self._request_get(f"/tables/{table}/rows", params, timeout=25)
+            if response is None:
+                continue
+            rows = self._extract_rows(response.json())
+            if not rows:
+                continue
+            df = pd.DataFrame(rows)
+            if "trade_time" in df.columns and "dt" not in df.columns:
+                df = df.rename(columns={"trade_time": "dt"})
+            return self._normalize_ohlcv_df(df)
+        return pd.DataFrame()
+
+    def fetch_kline_data(self, code, start_time, end_time, interval="1min"):
+        interval = str(interval)
+        if interval == "1min":
+            return self.fetch_minute_data(code, start_time, end_time)
+        if interval == "D":
+            df_d = self._fetch_daily_data(code, start_time, end_time)
+            if not df_d.empty:
+                return df_d
+            df_1m = self.fetch_minute_data(code, start_time, end_time)
+            return Indicators.resample(df_1m, "D") if not df_1m.empty else pd.DataFrame()
+        df_tf = self._fetch_table_timeframe_data(code, start_time, end_time, interval)
+        if not df_tf.empty:
+            return df_tf
+        df_1m = self.fetch_minute_data(code, start_time, end_time)
+        if df_1m.empty:
+            return pd.DataFrame()
+        return Indicators.resample(df_1m, interval)
 
     def fetch_minute_data(self, code, start_time, end_time):
         """

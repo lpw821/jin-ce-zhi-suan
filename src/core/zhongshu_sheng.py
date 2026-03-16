@@ -7,12 +7,15 @@ class ZhongshuSheng:
     def __init__(self, strategies):
         self.strategies = strategies # List of strategy instances
 
-    def generate_signals(self, kline):
+    def generate_signals(self, kline, runnable_strategy_ids=None):
         """
         Generate signals for all strategies for the current bar.
         """
         signals = []
+        runnable = set(runnable_strategy_ids) if runnable_strategy_ids else None
         for strategy in self.strategies:
+            if runnable is not None and strategy.id not in runnable:
+                continue
             signal = strategy.on_bar(kline)
             if signal:
                 signals.append(signal)

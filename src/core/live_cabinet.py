@@ -52,6 +52,7 @@ class LiveCabinet:
         self.all_strategies = self.strategies
         self.secretariat = ZhongshuSheng(self.strategies)
         self.active_strategy_ids = [s.id for s in self.strategies] # Default all active
+        self.strategy_trigger_tf = {s.id: getattr(s, "trigger_timeframe", "1min") for s in self.strategies}
         
         for s in self.strategies:
             self.personnel.register_strategy(s)
@@ -157,6 +158,53 @@ class LiveCabinet:
             self.active_strategy_ids = [strategy_id]
         print(f"🔄 策略池已更新: {self.active_strategy_ids}")
 
+    def _is_timeframe_tick(self, dt, timeframe):
+        if timeframe == "1min":
+            return True
+        minute = int(dt.minute)
+        hour = int(dt.hour)
+        if timeframe == "5min":
+            return minute % 5 == 0
+        if timeframe == "10min":
+            return minute % 10 == 0
+        if timeframe == "15min":
+            return minute % 15 == 0
+        if timeframe == "30min":
+            return minute % 30 == 0
+        if timeframe == "60min":
+            return minute == 0
+        if timeframe == "D":
+            return hour >= 15 and minute == 0
+        return True
+
+    def _get_runnable_strategy_ids(self, current_dt):
+        runnable = []
+        for sid in self.active_strategy_ids:
+            tf = self.strategy_trigger_tf.get(sid, "1min")
+            if self._is_timeframe_tick(current_dt, tf):
+                runnable.append(sid)
+        return runnable
+
+    def _format_tick_trigger_log(self, runnable_strategy_ids):
+        grouped = {}
+        for sid in runnable_strategy_ids:
+            tf = self.strategy_trigger_tf.get(sid, "1min")
+            grouped.setdefault(tf, []).append(sid)
+        tf_order = ["1min", "5min", "10min", "15min", "30min", "60min", "D"]
+        parts = []
+        for tf in tf_order:
+            ids = grouped.get(tf, [])
+            if ids:
+                parts.append(f"{tf}:{'/'.join(ids)}")
+        names = []
+        for sid in runnable_strategy_ids:
+            strategy = self.personnel.get_strategy(sid)
+            if strategy:
+                names.append(f"{sid}-{strategy.name}")
+            else:
+                names.append(sid)
+        return " | ".join(parts), "、".join(names)
+
     async def _tick(self, simulation_mode=False):
         current_dt = None
         bar = None
@@ -214,11 +262,12 @@ class LiveCabinet:
         # Check Archive
         self._check_market_close(current_dt)
         
-        # 2. Strategy Analysis (ZhongshuSheng)
-        signals = self.secretariat.generate_signals(bar)
-        
-        # Filter signals based on active strategies
-        active_signals = [s for s in signals if s['strategy_id'] in self.active_strategy_ids]
+        runnable_strategy_ids = self._get_runnable_strategy_ids(current_dt)
+        tf_text, name_text = self._format_tick_trigger_log(runnable_strategy_ids)
+        print(f"   ⏱ 本tick触发周期与策略: {tf_text if tf_text else '无'}")
+        print(f"   📋 本tick策略列表: {name_text if name_text else '无'}")
+        signals = self.secretariat.generate_signals(bar, runnable_strategy_ids=runnable_strategy_ids)
+        active_signals = signals
         
         if not active_signals:
             print("   💤 无策略信号")

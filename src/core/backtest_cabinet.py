@@ -18,6 +18,7 @@ from src.utils.data_provider import DataProvider
 from src.utils.tushare_provider import TushareProvider
 from src.utils.akshare_provider import AkshareProvider
 from src.utils.config_loader import ConfigLoader
+from src.utils.indicators import Indicators
 
 class BacktestCabinet:
     def __init__(self, stock_code, strategy_id='all', initial_capital=1000000.0, event_callback=None, strategy_mode=None, strategy_ids=None):
@@ -109,6 +110,30 @@ class BacktestCabinet:
         df = self.works.clean_data(df)
         total_bars = len(df)
         await self._emit('system', {'msg': f"已获取 {total_bars} 条K线数据，正在初始化策略..."})
+        day_end_dt_set = set(pd.to_datetime(df.groupby(df["dt"].dt.date)["dt"].max()).tolist())
+
+        strategy_trigger_tf = {s.id: getattr(s, "trigger_timeframe", "1min") for s in self.strategies}
+        needed_timeframes = sorted(set([tf for tf in strategy_trigger_tf.values() if tf != "1min"]))
+        tf_dt_sets = {}
+        for tf in needed_timeframes:
+            tf_df = pd.DataFrame()
+            try:
+                if hasattr(provider, "fetch_kline_data"):
+                    tf_df = provider.fetch_kline_data(self.stock_code, start_date, end_date, interval=tf)
+            except Exception:
+                tf_df = pd.DataFrame()
+            if tf_df.empty:
+                try:
+                    tf_df = Indicators.resample(df, tf)
+                except Exception:
+                    tf_df = pd.DataFrame()
+            if tf_df.empty or "dt" not in tf_df.columns:
+                continue
+            tf_df["dt"] = pd.to_datetime(tf_df["dt"])
+            if tf != "D":
+                tf_dt_sets[tf] = set(tf_df["dt"].tolist())
+        if needed_timeframes:
+            await self._emit('system', {'msg': f"策略周期映射已启用: {strategy_trigger_tf}"})
 
         # 2. Warm up strategies with initial data (optional, or just run)
         # Here we just run bar by bar
@@ -128,8 +153,20 @@ class BacktestCabinet:
 
             kline = row
             
+            current_dt = pd.to_datetime(kline["dt"])
+            runnable_strategy_ids = []
+            for sid, tf in strategy_trigger_tf.items():
+                if tf == "1min":
+                    runnable_strategy_ids.append(sid)
+                elif tf == "D":
+                    if current_dt in day_end_dt_set:
+                        runnable_strategy_ids.append(sid)
+                else:
+                    if current_dt in tf_dt_sets.get(tf, set()):
+                        runnable_strategy_ids.append(sid)
+
             # Generate Signals
-            signals = self.secretariat.generate_signals(kline)
+            signals = self.secretariat.generate_signals(kline, runnable_strategy_ids=runnable_strategy_ids)
             
             for signal in signals:
                 sid = signal['strategy_id']
