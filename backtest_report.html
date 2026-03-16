@@ -17,53 +17,83 @@
             </div>
         </div>
 
-        <div id="summary-card" class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 mb-6 hidden"></div>
-        <div id="insight-card" class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 mb-6 hidden"></div>
-
-        <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 mb-6">
-            <div class="text-lg font-semibold mb-3">历史回测记录</div>
-            <div id="history-list" class="space-y-2"></div>
-        </div>
-
-        <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 mb-8">
-            <div class="text-lg font-semibold mb-3">多策略业绩对比</div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="text-slate-400 bg-slate-800/70">
-                        <tr>
-                            <th class="px-3 py-2 text-left">排名</th>
-                            <th class="px-3 py-2 text-left">策略ID</th>
-                            <th class="px-3 py-2 text-left">评级</th>
-                            <th class="px-3 py-2 text-left">年化收益</th>
-                            <th class="px-3 py-2 text-left">最大回撤</th>
-                            <th class="px-3 py-2 text-left">胜率</th>
-                            <th class="px-3 py-2 text-left">卡玛</th>
-                            <th class="px-3 py-2 text-left">报告</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ranking-body" class="divide-y divide-slate-800"></tbody>
-                </table>
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-4">
+                <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+                    <div class="text-lg font-semibold mb-3">历史回测记录</div>
+                    <div id="history-list" class="space-y-2 max-h-[75vh] overflow-auto pr-1"></div>
+                </div>
             </div>
-        </div>
 
-        <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
-            <div class="text-lg font-semibold mb-3">单策略回测报告</div>
-            <div id="strategy-report-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            <div class="lg:col-span-8 space-y-6">
+                <div id="summary-card" class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 hidden"></div>
+                <div id="insight-card" class="bg-slate-900/60 border border-slate-800 rounded-lg p-4 hidden"></div>
+
+                <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+                    <div class="text-lg font-semibold mb-3">多策略业绩对比</div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="text-slate-400 bg-slate-800/70">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">排名</th>
+                                    <th class="px-3 py-2 text-left">策略ID</th>
+                                    <th class="px-3 py-2 text-left">评级</th>
+                                    <th class="px-3 py-2 text-left">年化收益</th>
+                                    <th class="px-3 py-2 text-left">最大回撤</th>
+                                    <th class="px-3 py-2 text-left">胜率</th>
+                                    <th class="px-3 py-2 text-left">卡玛</th>
+                                    <th class="px-3 py-2 text-left">报告</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ranking-body" class="divide-y divide-slate-800"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+                    <div class="text-lg font-semibold mb-3">单策略回测报告</div>
+                    <div id="strategy-report-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
         let currentReportId = null;
+        const STRATEGY_NAME_MAP = {
+            "01": "三周期共振波段",
+            "02": "短线弱转强烂板",
+            "03": "ETF行业轮动",
+            "04": "龙头首阴反包",
+            "05": "3N法则主升浪",
+            "06": "海豚交易法",
+            "07": "跳空交易系统",
+            "08": "神奇九转"
+        };
 
         async function loadReport(reportId = null) {
             const url = reportId ? `/api/report/${reportId}` : '/api/report/latest';
-            const res = await fetch(url);
-            const data = await res.json();
-            currentReportId = reportId;
-            renderSummary(data.summary);
-            renderRanking(data.ranking || []);
-            renderStrategyReports(data.strategy_reports || []);
-            renderInsight(data.summary, data.ranking || [], data.strategy_reports || []);
+            try {
+                const res = await fetch(url);
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(`${res.status} ${txt}`);
+                }
+                const data = await res.json();
+                currentReportId = reportId;
+                renderSummary(data.summary);
+                renderRanking(data.ranking || []);
+                renderStrategyReports(data.strategy_reports || []);
+                renderInsight(data.summary, data.ranking || [], data.strategy_reports || []);
+            } catch (err) {
+                const msg = (err && err.message) ? err.message : String(err);
+                renderSummary({ stock: "--", period: "--", total_trades: 0 });
+                const card = document.getElementById('summary-card');
+                card.innerHTML += `<div class="text-rose-300 text-xs mt-2">报告加载失败：${msg}</div>`;
+                renderRanking([]);
+                renderStrategyReports([]);
+                renderInsight(null, [], []);
+            }
         }
 
         async function loadHistory() {
@@ -76,21 +106,25 @@
                 wrap.innerHTML = '<div class="text-slate-500 text-sm">暂无历史回测记录</div>';
                 return;
             }
+            if (!currentReportId && reports.length) {
+                currentReportId = String(reports[0].report_id);
+            } else if (currentReportId && !reports.some(x => String(x.report_id) === String(currentReportId))) {
+                currentReportId = reports.length ? String(reports[0].report_id) : null;
+            }
             reports.forEach((r, idx) => {
+                const rid = String(r.report_id);
+                const active = currentReportId && String(currentReportId) === rid;
                 const row = document.createElement('div');
-                row.className = 'flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded px-3 py-2 text-sm';
+                row.className = `flex items-center justify-between border rounded px-3 py-2 text-sm ${active ? 'bg-blue-900/30 border-blue-700' : 'bg-slate-800/50 border-slate-700'}`;
                 row.innerHTML = `
                     <div class="text-slate-300">
                         <span class="font-mono text-white mr-2">${r.stock_code || '--'}</span>
                         <span class="mr-2">${r.period || '--'}</span>
                         <span class="text-slate-500">${r.created_at || ''}</span>
                     </div>
-                    <button class="text-blue-400 hover:text-blue-300 underline" data-rid="${r.report_id}">${idx === 0 ? '查看（最新）' : '查看'}</button>
+                    <button class="text-blue-400 hover:text-blue-300 underline cursor-pointer" data-rid="${rid}">${idx === 0 ? '查看（最新）' : '查看'}</button>
                 `;
                 wrap.appendChild(row);
-            });
-            wrap.querySelectorAll('button[data-rid]').forEach(btn => {
-                btn.addEventListener('click', () => loadReport(btn.dataset.rid));
             });
         }
 
@@ -171,11 +205,12 @@
             }
             reports.forEach(r => {
                 const sid = String(r.strategy_id);
+                const sname = STRATEGY_NAME_MAP[sid] || "未知策略";
                 const card = document.createElement('div');
                 card.id = `strategy-${sid}`;
                 card.className = 'bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-sm';
                 card.innerHTML = `
-                    <div class="font-bold text-white mb-2">策略 ${sid}</div>
+                    <div class="font-bold text-white mb-2">策略 ${sid} · ${sname}</div>
                     <div class="text-slate-300">回测周期：${r.start_date} ~ ${r.end_date}</div>
                     <div class="text-slate-300">初始资金：${Number(r.init_capital || 0).toFixed(2)} 元</div>
                     <div class="text-slate-300">结束资金：${Number(r.end_capital || 0).toFixed(2)} 元</div>
@@ -194,10 +229,17 @@
 
         async function refreshAll() {
             await loadHistory();
-            await loadReport(currentReportId);
+            await loadReport(currentReportId || null);
         }
 
         document.getElementById('refresh-btn').addEventListener('click', refreshAll);
+        document.getElementById('history-list').addEventListener('click', async (e) => {
+            const target = e.target.closest('button[data-rid]');
+            if (!target) return;
+            currentReportId = String(target.dataset.rid);
+            await loadReport(currentReportId);
+            await loadHistory();
+        });
         setInterval(refreshAll, 15000);
         refreshAll();
     </script>

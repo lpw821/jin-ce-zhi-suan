@@ -4,6 +4,8 @@ import json
 import os
 import importlib
 import sys
+import math
+import numbers
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse
@@ -82,6 +84,28 @@ def persist_report_history():
     os.makedirs(REPORTS_DIR, exist_ok=True)
     with open(REPORTS_FILE, "w", encoding="utf-8") as f:
         json.dump({"reports": report_history}, f, ensure_ascii=False, indent=2, default=str)
+
+def _safe_json_obj(obj):
+    try:
+        return json.loads(json.dumps(obj, ensure_ascii=False, default=str))
+    except Exception:
+        return None
+
+def _sanitize_non_finite(obj):
+    if isinstance(obj, dict):
+        return {k: _sanitize_non_finite(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_non_finite(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_sanitize_non_finite(v) for v in obj]
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, numbers.Integral):
+        return int(obj)
+    if isinstance(obj, numbers.Real):
+        v = float(obj)
+        return v if math.isfinite(v) else 0.0
+    return obj
 
 def start_new_backtest_report(stock_code, strategy_id):
     global current_backtest_report, latest_backtest_result, latest_strategy_reports
@@ -162,48 +186,91 @@ async def search_stocks(q: str = ""):
 
 @app.get("/api/report/latest")
 async def api_latest_report():
-    ranking = []
-    summary = latest_backtest_result
-    strategy_reports = latest_strategy_reports
-    if not summary and report_history:
-        summary = report_history[0].get("summary")
-        strategy_reports = report_history[0].get("strategy_reports", {})
-    if summary:
-        ranking = summary.get("ranking", [])
-    reports = list(strategy_reports.values())
-    reports = sorted(reports, key=lambda x: str(x.get("strategy_id", "")))
-    return {
-        "summary": summary,
-        "ranking": ranking,
-        "strategy_reports": reports
-    }
+    try:
+        load_report_history()
+        ranking = []
+        summary = None
+        strategy_reports = {}
+        if report_history and isinstance(report_history, list):
+            first = report_history[0] if report_history else {}
+            if isinstance(first, dict):
+                summary = first.get("summary")
+                strategy_reports = first.get("strategy_reports") or {}
+        if (not isinstance(summary, dict)) and isinstance(latest_backtest_result, dict):
+            summary = latest_backtest_result
+            strategy_reports = latest_strategy_reports or {}
+        if not isinstance(summary, dict):
+            summary = None
+        if summary:
+            ranking = summary.get("ranking", [])
+        if not isinstance(strategy_reports, dict):
+            strategy_reports = {}
+        reports = [v for v in strategy_reports.values() if isinstance(v, dict)]
+        reports = sorted(reports, key=lambda x: str(x.get("strategy_id", "")))
+        payload = {
+            "summary": summary,
+            "ranking": ranking if isinstance(ranking, list) else [],
+            "strategy_reports": reports
+        }
+        payload = _sanitize_non_finite(payload)
+        safe_payload = _safe_json_obj(payload)
+        if isinstance(safe_payload, dict):
+            return safe_payload
+        return {
+            "summary": None,
+            "ranking": [],
+            "strategy_reports": []
+        }
+    except Exception as e:
+        logger.error(f"/api/report/latest failed: {e}", exc_info=True)
+        return {"summary": None, "ranking": [], "strategy_reports": []}
 
 @app.get("/api/report/history")
 async def api_report_history():
-    items = []
-    for r in report_history:
-        summary = r.get("summary") or {}
-        items.append({
-            "report_id": r.get("report_id"),
-            "created_at": r.get("created_at"),
-            "stock_code": r.get("stock_code") or summary.get("stock"),
-            "period": summary.get("period"),
-            "total_trades": summary.get("total_trades", 0)
-        })
-    return {"reports": items}
+    try:
+        load_report_history()
+        items = []
+        for r in report_history if isinstance(report_history, list) else []:
+            if not isinstance(r, dict):
+                continue
+            summary = r.get("summary") if isinstance(r.get("summary"), dict) else {}
+            items.append({
+                "report_id": r.get("report_id"),
+                "created_at": r.get("created_at"),
+                "stock_code": r.get("stock_code") or summary.get("stock"),
+                "period": summary.get("period"),
+                "total_trades": summary.get("total_trades", 0)
+            })
+        return {"reports": items}
+    except Exception as e:
+        logger.error(f"/api/report/history failed: {e}", exc_info=True)
+        return {"reports": []}
 
 @app.get("/api/report/{report_id}")
 async def api_report_detail(report_id: str):
-    for r in report_history:
-        if str(r.get("report_id")) == str(report_id):
-            summary = r.get("summary")
-            ranking = []
-            if summary:
-                ranking = summary.get("ranking", [])
-            reports = list((r.get("strategy_reports") or {}).values())
-            reports = sorted(reports, key=lambda x: str(x.get("strategy_id", "")))
-            return {"summary": summary, "ranking": ranking, "strategy_reports": reports}
-    raise HTTPException(status_code=404, detail="report not found")
+    try:
+        load_report_history()
+        for r in report_history if isinstance(report_history, list) else []:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("report_id")) == str(report_id):
+                summary = r.get("summary") if isinstance(r.get("summary"), dict) else None
+                ranking = summary.get("ranking", []) if summary else []
+                strategy_reports = r.get("strategy_reports") if isinstance(r.get("strategy_reports"), dict) else {}
+                reports = [v for v in strategy_reports.values() if isinstance(v, dict)]
+                reports = sorted(reports, key=lambda x: str(x.get("strategy_id", "")))
+                payload = {"summary": summary, "ranking": ranking, "strategy_reports": reports}
+                payload = _sanitize_non_finite(payload)
+                safe_payload = _safe_json_obj(payload)
+                if isinstance(safe_payload, dict):
+                    return safe_payload
+                return {"summary": None, "ranking": [], "strategy_reports": []}
+        raise HTTPException(status_code=404, detail="report not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"/api/report/{report_id} failed: {e}", exc_info=True)
+        return {"summary": None, "ranking": [], "strategy_reports": []}
 
 # --- Control Endpoints for External Systems (e.g. OpenClaw) ---
 @app.post("/api/control/start_backtest")
