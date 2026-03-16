@@ -141,7 +141,7 @@ class DataProvider:
             try:
                 rows = []
                 for params in candidate_params:
-                    response = self._request_get("/market/minutes", params, timeout=15)
+                    response = self._request_get("/market/minutes", params, timeout=45)
                     if response is None:
                         continue
                     data = response.json()

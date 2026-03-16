@@ -6,6 +6,7 @@
   },
   "data_provider": {
     "source": "default", // 数据源选择: "akshare" (免费/默认), "tushare" (需Token), "default" (自定义API)
+    "enable_fallback": true,
     
     // Tushare 配置 (仅当 source="tushare" 时生效)
     "tushare_token": "4ba065ecb8eebdebc93dffaef6bc051eeb3a98b46eb7d94fd697282f",

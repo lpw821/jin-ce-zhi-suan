@@ -6,14 +6,23 @@
     <title>回测报告中心</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .enter-anim {
+            animation: fadeSlideIn .22s ease-out;
+        }
+    </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
-    <div class="max-w-7xl mx-auto px-6 py-8">
-        <div class="flex items-center justify-between mb-6">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-8">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6">
             <h1 class="text-2xl font-bold"><i class="fa-solid fa-chart-line text-blue-400 mr-2"></i>回测报告中心</h1>
-            <div class="flex items-center gap-2">
-                <button id="refresh-btn" class="text-sm bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded border border-blue-600">刷新报告</button>
-                <a href="/" class="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded border border-slate-700">返回控制台</a>
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <button id="refresh-btn" class="text-sm bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded border border-blue-600 w-1/2 sm:w-auto whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5 active:scale-95">刷新报告</button>
+                <a href="/" class="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded border border-slate-700 text-center w-1/2 sm:w-auto whitespace-nowrap transition-all duration-200 hover:-translate-y-0.5 active:scale-95">返回控制台</a>
             </div>
         </div>
 
@@ -21,7 +30,7 @@
             <div class="lg:col-span-4">
                 <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
                     <div class="text-lg font-semibold mb-3">历史回测记录</div>
-                    <div id="history-list" class="space-y-2 max-h-[75vh] overflow-auto pr-1"></div>
+                    <div id="history-list" class="space-y-2 max-h-[40vh] lg:max-h-[75vh] overflow-auto pr-1"></div>
                 </div>
             </div>
 
@@ -31,7 +40,8 @@
 
                 <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
                     <div class="text-lg font-semibold mb-3">多策略业绩对比</div>
-                    <div class="overflow-x-auto">
+                    <div id="ranking-mobile" class="md:hidden space-y-2"></div>
+                    <div class="hidden md:block overflow-x-auto">
                         <table class="w-full text-sm">
                             <thead class="text-slate-400 bg-slate-800/70">
                                 <tr>
@@ -52,7 +62,7 @@
 
                 <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
                     <div class="text-lg font-semibold mb-3">单策略回测报告</div>
-                    <div id="strategy-report-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                    <div id="strategy-report-list" class="grid grid-cols-1 xl:grid-cols-2 gap-4"></div>
                 </div>
             </div>
         </div>
@@ -115,14 +125,16 @@
                 const rid = String(r.report_id);
                 const active = currentReportId && String(currentReportId) === rid;
                 const row = document.createElement('div');
-                row.className = `flex items-center justify-between border rounded px-3 py-2 text-sm ${active ? 'bg-blue-900/30 border-blue-700' : 'bg-slate-800/50 border-slate-700'}`;
+                row.className = `flex items-center justify-between border rounded px-3 py-2 text-sm enter-anim transition-all duration-200 ${active ? 'bg-blue-900/30 border-blue-700' : 'bg-slate-800/50 border-slate-700 hover:bg-slate-800/80'}`;
                 row.innerHTML = `
-                    <div class="text-slate-300">
-                        <span class="font-mono text-white mr-2">${r.stock_code || '--'}</span>
-                        <span class="mr-2">${r.period || '--'}</span>
-                        <span class="text-slate-500">${r.created_at || ''}</span>
+                    <div class="text-slate-300 flex-1 min-w-0 pr-3">
+                        <div class="truncate">
+                            <span class="font-mono text-white mr-2">${r.stock_code || '--'}</span>
+                            <span class="mr-2">${r.period || '--'}</span>
+                        </div>
+                        <div class="text-slate-500 truncate">${r.created_at || ''}</div>
                     </div>
-                    <button class="text-blue-400 hover:text-blue-300 underline cursor-pointer" data-rid="${rid}">${idx === 0 ? '查看（最新）' : '查看'}</button>
+                    <button class="text-blue-400 hover:text-blue-300 underline cursor-pointer shrink-0 whitespace-nowrap px-1 py-0.5 rounded transition-all duration-200 hover:bg-blue-900/30 active:scale-95" data-rid="${rid}">${idx === 0 ? '查看（最新）' : '查看'}</button>
                 `;
                 wrap.appendChild(row);
             });
@@ -145,9 +157,12 @@
 
         function renderRanking(ranking) {
             const body = document.getElementById('ranking-body');
+            const mobile = document.getElementById('ranking-mobile');
             body.innerHTML = '';
+            mobile.innerHTML = '';
             if (!ranking.length) {
                 body.innerHTML = '<tr><td colspan="8" class="px-3 py-6 text-center text-slate-500">暂无策略对比数据</td></tr>';
+                mobile.innerHTML = '<div class="text-center text-slate-500 py-3">暂无策略对比数据</div>';
                 return;
             }
             ranking.forEach(r => {
@@ -168,6 +183,17 @@
                     <td class="px-3 py-2"><a href="#strategy-${sid}" class="text-blue-400 hover:text-blue-300 underline">单策略回测报告</a></td>
                 `;
                 body.appendChild(tr);
+                const card = document.createElement('div');
+                card.className = 'bg-slate-800/50 border border-slate-700 rounded p-3 text-sm enter-anim transition-all duration-200 hover:border-slate-500 hover:-translate-y-0.5';
+                card.innerHTML = `
+                    <div class="text-white font-semibold mb-1">#${r.rank ?? '-'} 策略 ${sid} · ${r.rating ?? '-'}</div>
+                    <div class="${roi >= 0 ? 'text-emerald-400' : 'text-rose-400'}">年化收益：${(roi*100).toFixed(2)}%</div>
+                    <div class="text-rose-300">最大回撤：${(dd*100).toFixed(2)}%</div>
+                    <div class="text-cyan-300">胜率：${(winRate*100).toFixed(2)}%</div>
+                    <div class="text-slate-300">卡玛：${Number(r.calmar || 0).toFixed(2)}</div>
+                    <a href="#strategy-${sid}" class="text-blue-400 hover:text-blue-300 underline">查看单策略报告</a>
+                `;
+                mobile.appendChild(card);
             });
         }
 
@@ -208,7 +234,7 @@
                 const sname = STRATEGY_NAME_MAP[sid] || "未知策略";
                 const card = document.createElement('div');
                 card.id = `strategy-${sid}`;
-                card.className = 'bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-sm';
+                card.className = 'bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-sm enter-anim transition-all duration-200 hover:border-slate-500 hover:-translate-y-0.5';
                 card.innerHTML = `
                     <div class="font-bold text-white mb-2">策略 ${sid} · ${sname}</div>
                     <div class="text-slate-300">回测周期：${r.start_date} ~ ${r.end_date}</div>
