@@ -45,7 +45,7 @@
   },
   "strategy_params": {
     "common": {
-      "order_qty": 1000
+      "order_qty": 100
     },
     "01": {
       "min_history_bars": 500,

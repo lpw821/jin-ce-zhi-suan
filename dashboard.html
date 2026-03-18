@@ -650,8 +650,9 @@
                 <i id="live-toggle-icon" class="fa-solid fa-satellite-dish"></i>
                 <span id="live-toggle-label">启动 Live</span>
             </button>
-            <button onclick="startBacktest()" class="bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500">
-                <i class="fa-solid fa-play"></i> 立即回测
+            <button id="backtest-trigger-btn" onclick="startBacktest()" class="bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500 min-w-[128px]">
+                <i id="backtest-trigger-icon" class="fa-solid fa-play"></i>
+                <span id="backtest-trigger-label">立即回测</span>
             </button>
             <button onclick="openConfigCenter()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-purple-500">
                 <i class="fa-solid fa-sliders"></i> 配置中心
@@ -758,6 +759,14 @@
             latestPrice: null,
             lastFlowAt: null
         };
+        const BACKTEST_BTN_STATE = {
+            idle: 'idle',
+            running: 'running',
+            error: 'error'
+        };
+        let backtestBtnState = BACKTEST_BTN_STATE.idle;
+        let backtestStatusMonitorTimer = null;
+        let backtestMonitorErrorCount = 0;
         const STRATEGY_GUIDE = {
             all: {
                 name: '全部策略总览',
@@ -919,6 +928,9 @@
             logMessage('SYSTEM', 'WebSocket 连接断开', 'danger');
             DIAG_STATE.wsConnected = false;
             updateDebugPanel();
+            if (backtestBtnState === BACKTEST_BTN_STATE.running) {
+                setBacktestButtonState(BACKTEST_BTN_STATE.error);
+            }
         };
         syncStatus();
 
@@ -928,6 +940,9 @@
             switch(type) {
                 case 'system':
                     logMessage('SYSTEM', data.msg, 'system');
+                    if ((data.msg || '').includes('回测完成')) {
+                        setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+                    }
                     if ((data.msg || '').includes('实时监控已启动')) {
                         liveRunning = true;
                         liveActionPending = false;
@@ -1040,6 +1055,7 @@
                     break;
                 case 'backtest_result':
                     showBacktestResults(data);
+                    setBacktestButtonState(BACKTEST_BTN_STATE.idle);
                     break;
                 case 'backtest_strategy_report':
                     upsertStrategyReport(data);
@@ -1892,6 +1908,17 @@
                 const data = await res.json();
                 liveEnabled = data.live_enabled !== false;
                 liveRunning = liveEnabled && Boolean(data.is_running && String(data.active_cabinet_type || '').toLowerCase().includes('live'));
+                const reportStatus = String(data.current_report_status || '').toLowerCase();
+                const reportError = data.current_report_error;
+                const progressVal = Number((data.progress || {}).progress || 0);
+                const isBacktestRunning = Boolean(data.is_running && String(data.active_cabinet_type || '').toLowerCase().includes('backtest'));
+                if (backtestBtnState === BACKTEST_BTN_STATE.running) {
+                    if (reportStatus === 'failed' || reportError) {
+                        setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                    } else if (reportStatus === 'success' || (!isBacktestRunning && progressVal >= 100) || (!data.is_running && reportStatus && reportStatus !== 'running')) {
+                        setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+                    }
+                }
                 const sourceSel = document.getElementById('source-select');
                 if (data.provider_source) currentSource = data.provider_source;
                 if (sourceSel && data.provider_source) sourceSel.value = data.provider_source;
@@ -2031,7 +2058,68 @@
         }
 
         // --- Backtest Logic ---
+        function setBacktestButtonState(state) {
+            const btn = document.getElementById('backtest-trigger-btn');
+            const icon = document.getElementById('backtest-trigger-icon');
+            const label = document.getElementById('backtest-trigger-label');
+            if (!btn || !icon || !label) return;
+            backtestBtnState = state;
+            if (backtestStatusMonitorTimer) {
+                clearTimeout(backtestStatusMonitorTimer);
+                backtestStatusMonitorTimer = null;
+            }
+            if (state === BACKTEST_BTN_STATE.running) {
+                btn.className = 'bg-amber-600 hover:bg-amber-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-amber-500 min-w-[128px] cursor-not-allowed';
+                btn.disabled = true;
+                icon.className = 'fa-solid fa-spinner fa-spin';
+                label.innerText = '回测中';
+                backtestMonitorErrorCount = 0;
+                monitorBacktestTaskStatus();
+                return;
+            }
+            btn.disabled = false;
+            if (state === BACKTEST_BTN_STATE.error) {
+                btn.className = 'bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-red-500 min-w-[128px]';
+                icon.className = 'fa-solid fa-triangle-exclamation';
+                label.innerText = '回测异常';
+                return;
+            }
+            btn.className = 'bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500 min-w-[128px]';
+            icon.className = 'fa-solid fa-play';
+            label.innerText = '立即回测';
+        }
+
+        async function monitorBacktestTaskStatus() {
+            if (backtestBtnState !== BACKTEST_BTN_STATE.running) return;
+            try {
+                const res = await fetch('/api/status');
+                if (!res.ok) throw new Error(`status ${res.status}`);
+                const data = await res.json();
+                const reportStatus = String(data.current_report_status || '').toLowerCase();
+                const reportError = data.current_report_error;
+                if (reportStatus === 'failed' || reportError) {
+                    logMessage('回测', reportError || '回测任务异常终止', 'danger');
+                    setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                    return;
+                }
+                if (reportStatus === 'success') {
+                    setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+                    return;
+                }
+                backtestMonitorErrorCount = 0;
+            } catch (e) {
+                backtestMonitorErrorCount += 1;
+                if (backtestMonitorErrorCount >= 2) {
+                    logMessage('回测', `状态检测失败: ${e}`, 'danger');
+                    setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                    return;
+                }
+            }
+            backtestStatusMonitorTimer = setTimeout(monitorBacktestTaskStatus, 2000);
+        }
+
         function startBacktest() {
+            if (backtestBtnState === BACKTEST_BTN_STATE.running) return;
             const overlay = document.getElementById('backtest-overlay');
             if (overlay) overlay.classList.remove('active');
             strategyReportsBuffer = [];
@@ -2057,16 +2145,24 @@
             if (txt) txt.innerText = '初始化中...';
             if (dt) dt.innerText = dates.start;
             if (bar) bar.style.width = '0%';
-            
-            ws.send(JSON.stringify({
-                type: 'start_backtest',
-                stock: code,
-                strategy: strategy,
-                strategy_ids: picked.length && picked.length !== strategyCatalog.length ? picked : null,
-                start: dates.start,
-                end: dates.end,
-                capital: capital
-            }));
+            setBacktestButtonState(BACKTEST_BTN_STATE.running);
+            try {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    throw new Error('WebSocket 未连接');
+                }
+                ws.send(JSON.stringify({
+                    type: 'start_backtest',
+                    stock: code,
+                    strategy: strategy,
+                    strategy_ids: picked.length && picked.length !== strategyCatalog.length ? picked : null,
+                    start: dates.start,
+                    end: dates.end,
+                    capital: capital
+                }));
+            } catch (e) {
+                logMessage('回测', `启动失败: ${e}`, 'danger');
+                setBacktestButtonState(BACKTEST_BTN_STATE.error);
+            }
         }
 
         function getBacktestDateRange(range) {
