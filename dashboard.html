@@ -794,7 +794,24 @@
         };
 
         // --- WebSocket Integration ---
-        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        let ws = null;
+        let wsReconnectTimer = null;
+        let wsHeartbeatTimer = null;
+        let wsReconnectAttempts = 0;
+        let wsLastPongAt = 0;
+        const WS_HEARTBEAT_INTERVAL_MS = 15000;
+        const WS_STALE_TIMEOUT_MS = 90000;
+        const WS_RECONNECT_MAX_DELAY_MS = 10000;
+        const RENDER_LOOP_INTERVAL_MS = 50;
+        const RENDER_HIGH_BUDGET = 20;
+        const RENDER_NORMAL_BUDGET = 30;
+        const RENDER_QUEUE_MAX = 1500;
+        const RENDER_CRITICAL_TYPES = new Set(['system', 'backtest_result', 'backtest_failed', 'backtest_strategy_report']);
+        const RENDER_COALESCE_TYPES = new Set(['market', 'live_tick', 'ministry_tick', 'backtest_progress']);
+        const renderHighQueue = [];
+        const renderNormalQueue = [];
+        const renderCoalesceMap = new Map();
+        let renderLoopTimer = null;
         let strategyReportsBuffer = [];
         let liveRunning = false;
         let liveEnabled = window.__LIVE_ENABLED__ === true;
@@ -1012,29 +1029,151 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             { id: '09', name: '箱体降本策略' }
         ];
         
-        ws.onopen = () => {
-            console.log('Connected to Cabinet');
-            logMessage('SYSTEM', 'WebSocket 连接成功', 'system');
-            DIAG_STATE.wsConnected = true;
-            updateDebugPanel();
-            fetchGlobalStrategies();
-            syncStatus();
-        };
-        
-        ws.onmessage = (event) => {
-            const payload = JSON.parse(event.data);
-            handleEvent(payload);
-        };
-        
-        ws.onclose = () => {
-            logMessage('SYSTEM', 'WebSocket 连接断开', 'danger');
-            DIAG_STATE.wsConnected = false;
-            updateDebugPanel();
-            if (backtestBtnState === BACKTEST_BTN_STATE.running) {
-                logMessage('回测', '已切换为状态轮询，等待回测完成...', 'warning');
-                monitorBacktestTaskStatus();
+        function wsUrl() {
+            const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            return `${proto}://${window.location.host}/ws`;
+        }
+
+        function clearWsTimers() {
+            if (wsHeartbeatTimer) {
+                clearInterval(wsHeartbeatTimer);
+                wsHeartbeatTimer = null;
             }
-        };
+            if (wsReconnectTimer) {
+                clearTimeout(wsReconnectTimer);
+                wsReconnectTimer = null;
+            }
+        }
+
+        function scheduleWsReconnect() {
+            if (wsReconnectTimer) return;
+            const delay = Math.min(WS_RECONNECT_MAX_DELAY_MS, 1000 * Math.max(1, wsReconnectAttempts));
+            wsReconnectTimer = setTimeout(() => {
+                wsReconnectTimer = null;
+                connectWebSocket();
+            }, delay);
+        }
+
+        function sendWsCommand(payload) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+            try {
+                ws.send(JSON.stringify(payload));
+                return true;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function processRenderQueue() {
+            if (renderCoalesceMap.size > 0) {
+                for (const payload of renderCoalesceMap.values()) {
+                    if (renderNormalQueue.length < RENDER_QUEUE_MAX) {
+                        renderNormalQueue.push(payload);
+                    }
+                }
+                renderCoalesceMap.clear();
+            }
+            let consumed = 0;
+            while (renderHighQueue.length && consumed < RENDER_HIGH_BUDGET) {
+                handleEvent(renderHighQueue.shift());
+                consumed += 1;
+            }
+            consumed = 0;
+            while (renderNormalQueue.length && consumed < RENDER_NORMAL_BUDGET) {
+                handleEvent(renderNormalQueue.shift());
+                consumed += 1;
+            }
+        }
+
+        function ensureRenderLoop() {
+            if (renderLoopTimer) return;
+            const tick = () => {
+                processRenderQueue();
+                const hasPending = renderHighQueue.length || renderNormalQueue.length || renderCoalesceMap.size;
+                if (!hasPending) {
+                    renderLoopTimer = null;
+                    return;
+                }
+                renderLoopTimer = setTimeout(tick, RENDER_LOOP_INTERVAL_MS);
+            };
+            renderLoopTimer = setTimeout(tick, 0);
+        }
+
+        function enqueueIncomingEvent(payload) {
+            if (!payload || typeof payload !== 'object') return;
+            const type = String(payload.type || '');
+            if (!type) return;
+            if (RENDER_CRITICAL_TYPES.has(type)) {
+                renderHighQueue.push(payload);
+                ensureRenderLoop();
+                return;
+            }
+            if (RENDER_COALESCE_TYPES.has(type)) {
+                renderCoalesceMap.set(type, payload);
+                ensureRenderLoop();
+                return;
+            }
+            if (renderNormalQueue.length < RENDER_QUEUE_MAX) {
+                renderNormalQueue.push(payload);
+            } else {
+                if (type === 'backtest_flow') return;
+                renderNormalQueue.shift();
+                renderNormalQueue.push(payload);
+            }
+            ensureRenderLoop();
+        }
+
+        function connectWebSocket() {
+            clearWsTimers();
+            try {
+                ws = new WebSocket(wsUrl());
+            } catch (_) {
+                scheduleWsReconnect();
+                return;
+            }
+            ws.onopen = () => {
+                wsReconnectAttempts = 0;
+                wsLastPongAt = Date.now();
+                logMessage('SYSTEM', 'WebSocket 连接成功', 'system');
+                DIAG_STATE.wsConnected = true;
+                updateDebugPanel();
+                fetchGlobalStrategies();
+                syncStatus();
+                wsHeartbeatTimer = setInterval(() => {
+                    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                    if (Date.now() - wsLastPongAt > WS_STALE_TIMEOUT_MS) {
+                        try { ws.close(); } catch (_) {}
+                        return;
+                    }
+                    sendWsCommand({ type: 'ping', ts: Date.now() });
+                }, WS_HEARTBEAT_INTERVAL_MS);
+            };
+            ws.onmessage = (event) => {
+                wsLastPongAt = Date.now();
+                let payload = null;
+                try {
+                    payload = JSON.parse(event.data);
+                } catch (_) {
+                    return;
+                }
+                if (payload && payload.type === 'pong') return;
+                enqueueIncomingEvent(payload);
+            };
+            ws.onclose = () => {
+                DIAG_STATE.wsConnected = false;
+                updateDebugPanel();
+                clearWsTimers();
+                wsReconnectAttempts += 1;
+                logMessage('SYSTEM', 'WebSocket 连接断开，正在自动重连...', 'danger');
+                if (backtestBtnState === BACKTEST_BTN_STATE.running) {
+                    logMessage('回测', '已切换为状态轮询，等待回测完成...', 'warning');
+                    monitorBacktestTaskStatus();
+                }
+                scheduleWsReconnect();
+            };
+            ws.onerror = () => {};
+        }
+        connectWebSocket();
         syncStatus();
 
         function handleEvent(payload) {
@@ -1264,10 +1403,14 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (!liveEnabled) return;
             logMessage('SYSTEM', '正在自动启动内阁进程...', 'system');
             const code = normalizeCode(document.getElementById('stock-search-input').value || '600036');
-            ws.send(JSON.stringify({
+            const ok = sendWsCommand({
                 type: 'start_simulation',
                 stock: code
-            }));
+            });
+            if (!ok) {
+                logMessage('SYSTEM', 'WebSocket 未连接，已取消启动Live', 'danger');
+                return;
+            }
             liveRunning = true;
             renderLiveStatus();
         }
@@ -1396,23 +1539,23 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         function restartSimulation(code) {
             if (!liveEnabled) return;
             // Stop current
-            ws.send(JSON.stringify({ type: 'stop_simulation' }));
+            sendWsCommand({ type: 'stop_simulation' });
             
             logMessage('SYSTEM', `正在切换监控标的: ${code}...`, 'warning');
             
             setTimeout(() => {
                 // Start new
-                ws.send(JSON.stringify({
+                sendWsCommand({
                     type: 'start_simulation',
                     stock: normalizeCode(code)
-                }));
+                });
             }, 1000);
         }
 
         function stopSimulation() {
             if (!liveEnabled) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'stop_simulation' }));
+                sendWsCommand({ type: 'stop_simulation' });
                 logMessage('SYSTEM', '发送停止指令');
                 liveRunning = false;
                 renderLiveStatus();
@@ -2308,7 +2451,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
 
         function reloadStrategies() {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'reload_strategies' }));
+                sendWsCommand({ type: 'reload_strategies' });
                 logMessage('SYSTEM', '发送策略热更新指令...');
                 setTimeout(fetchGlobalStrategies, 300);
             } else {
@@ -2349,10 +2492,10 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 logMessage('SYSTEM', msg, 'success');
             });
             if (Array.isArray(val)) {
-                ws.send(JSON.stringify({ type: 'switch_strategy', ids: val }));
+                sendWsCommand({ type: 'switch_strategy', ids: val });
                 updateStrategyQuick(val.length === 1 ? String(val[0]) : 'all');
             } else {
-                ws.send(JSON.stringify({ type: 'switch_strategy', id: val }));
+                sendWsCommand({ type: 'switch_strategy', id: val });
                 updateStrategyQuick(val);
             }
         }
@@ -2556,7 +2699,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
                     throw new Error('WebSocket 未连接');
                 }
-                ws.send(JSON.stringify({
+                sendWsCommand({
                     type: 'start_backtest',
                     stock: code,
                     strategy: strategy,
@@ -2564,7 +2707,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     start: dates.start,
                     end: dates.end,
                     capital: capital
-                }));
+                });
             } catch (e) {
                 logMessage('回测', `启动失败: ${e}`, 'danger');
                 setBacktestButtonState(BACKTEST_BTN_STATE.error);

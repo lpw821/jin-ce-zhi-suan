@@ -191,10 +191,11 @@ class BacktestCabinet:
         # 3. Main Loop
         report_interval = max(1, total_bars // 50) # Report 50 times total
         
+        op_counter = 0
         for i, row in df.iterrows():
             # Check for cancellation (how? maybe checking a flag if running in task)
             # For now, just yield control
-            if i % 100 == 0:
+            if i % 10 == 0:
                 await asyncio.sleep(0) # Yield
             kline = row
             
@@ -238,6 +239,9 @@ class BacktestCabinet:
                 })
             
             for signal in signals:
+                op_counter += 1
+                if op_counter % 20 == 0:
+                    await asyncio.sleep(0)
                 sid = signal['strategy_id']
                 await self._emit('zhongshu', {
                     'msg': f"策略 {sid} 生成信号",
@@ -300,6 +304,9 @@ class BacktestCabinet:
             # Check Stops
             triggered_orders = self.state_affairs.check_stops(kline)
             for order in triggered_orders:
+                op_counter += 1
+                if op_counter % 20 == 0:
+                    await asyncio.sleep(0)
                 account = self.strategy_revenues.get(order['strategy_id'])
                 if account is None:
                     continue
