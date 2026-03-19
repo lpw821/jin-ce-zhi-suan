@@ -97,6 +97,15 @@ class BacktestCabinet:
             if first_key != key:
                 BacktestCabinet._tf_cache.pop(first_key, None)
 
+    def _normalize_trigger_tf(self, tf):
+        x = str(tf or "1min").strip()
+        if not x:
+            return "1min"
+        low = x.lower()
+        if low in ("d", "1d", "day", "daily"):
+            return "D"
+        return x
+
     async def _emit_loop(self):
         while True:
             item = await self._event_queue.get()
@@ -228,7 +237,7 @@ class BacktestCabinet:
             for strategy in self.strategies:
                 strategy.set_backtest_context(final_bar_dt=final_bar_dt)
             stage_started_at = perf_counter()
-            strategy_trigger_tf = {s.id: getattr(s, "trigger_timeframe", "1min") for s in self.strategies}
+            strategy_trigger_tf = {s.id: self._normalize_trigger_tf(getattr(s, "trigger_timeframe", "1min")) for s in self.strategies}
             needed_timeframes = sorted(set([tf for tf in strategy_trigger_tf.values() if tf != "1min"]))
             tf_dt_sets = {}
             for tf in needed_timeframes:
@@ -285,19 +294,6 @@ class BacktestCabinet:
                     kline["turnover"] = kline["amount"]
                 if "amount" not in kline and "turnover" in kline:
                     kline["amount"] = kline["turnover"]
-                if i % report_interval == 0:
-                    progress = int((i / total_bars) * 100)
-                    await self._emit('backtest_progress', {'progress': progress, 'current_date': str(kline['dt'])})
-                    await self._emit('market', {
-                        'price': float(kline['close']),
-                        'ma5': float(ma5_series.iloc[i]),
-                        'macd': float(macd_series.iloc[i]),
-                        'rsi': float(rsi_series.iloc[i]),
-                        'time': str(kline['dt']),
-                        'kline_timeframe': '1分钟线',
-                        'kline_dt': str(kline['dt'])
-                    })
-                    await self._emit_account_snapshot(kline, active_strategy_id=None, compliance_status="PASS")
                 current_dt = pd.to_datetime(kline["dt"])
                 runnable_strategy_ids = []
                 for sid, tf in strategy_trigger_tf.items():
@@ -309,6 +305,23 @@ class BacktestCabinet:
                     else:
                         if current_dt in tf_dt_sets.get(tf, set()):
                             runnable_strategy_ids.append(sid)
+                if i % report_interval == 0:
+                    progress = int((i / total_bars) * 100)
+                    await self._emit('backtest_progress', {'progress': progress, 'current_date': str(kline['dt'])})
+                    runnable_tf = sorted(set([strategy_trigger_tf.get(s, "1min") for s in runnable_strategy_ids]))
+                    await self._emit('market', {
+                        'price': float(kline['close']),
+                        'ma5': float(ma5_series.iloc[i]),
+                        'macd': float(macd_series.iloc[i]),
+                        'rsi': float(rsi_series.iloc[i]),
+                        'time': str(kline['dt']),
+                        'kline_timeframe': '1分钟驱动',
+                        'kline_dt': str(kline['dt']),
+                        'strategy_timeframes': strategy_trigger_tf,
+                        'runnable_strategy_ids': runnable_strategy_ids,
+                        'runnable_timeframes': runnable_tf
+                    })
+                    await self._emit_account_snapshot(kline, active_strategy_id=None, compliance_status="PASS")
                 strategy_context = {
                     sid: {
                         "current_cash": float(self.strategy_revenues[sid].cash),

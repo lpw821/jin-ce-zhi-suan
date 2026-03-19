@@ -46,21 +46,23 @@ class BingBuWar:
 
         # Long position logic
         if position['direction'] == 'BUY':
+            stop_loss = position.get('stop_loss', None)
+            take_profit = position.get('take_profit', None)
             # Stop Loss
-            if kline['low'] <= position['stop_loss']:
+            if stop_loss is not None and kline['low'] <= stop_loss:
                 # Triggered at stop price or open if gap down, but rule says "Triggered immediately"
                 # Conservative: min(open, stop_loss) if gap? 
                 # Rule: "Triggered at high/low" -> We use the stop price itself if within range, else Open.
-                fill_price = position['stop_loss'] 
+                fill_price = stop_loss
                 # If Open is already below stop loss (gap down), use Open.
-                if kline['open'] < position['stop_loss']:
+                if kline['open'] < stop_loss:
                     fill_price = kline['open']
                 return True, 'STOP_LOSS', fill_price
             
             # Take Profit
-            if position.get('take_profit') and kline['high'] >= position['take_profit']:
-                 fill_price = position['take_profit']
-                 if kline['open'] > position['take_profit']:
+            if take_profit is not None and kline['high'] >= take_profit:
+                 fill_price = take_profit
+                 if kline['open'] > take_profit:
                      fill_price = kline['open']
                  return True, 'TAKE_PROFIT', fill_price
 

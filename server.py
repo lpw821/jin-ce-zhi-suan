@@ -259,12 +259,14 @@ class StrategyAnalyzeRequest(BaseModel):
     template_text: str
     strategy_name: Optional[str] = None
     code_template: Optional[str] = None
+    kline_type: Optional[str] = None
 
 
 class StrategyMarketAnalyzeRequest(BaseModel):
     market_state: dict
     strategy_name: Optional[str] = None
     code_template: Optional[str] = None
+    kline_type: Optional[str] = None
 
 class StrategyAddRequest(BaseModel):
     strategy_id: str
@@ -275,6 +277,7 @@ class StrategyAddRequest(BaseModel):
     analysis_text: Optional[str] = None
     strategy_intent: Optional[dict] = None
     source: Optional[str] = None
+    kline_type: Optional[str] = None
     raw_requirement_title: Optional[str] = None
     raw_requirement: Optional[str] = None
 
@@ -286,6 +289,7 @@ class StrategyUpdateRequest(BaseModel):
     code: Optional[str] = None
     analysis_text: Optional[str] = None
     source: Optional[str] = None
+    kline_type: Optional[str] = None
     raw_requirement_title: Optional[str] = None
     raw_requirement: Optional[str] = None
 
@@ -307,6 +311,22 @@ def _extract_code_block(text):
 def _extract_first_class_name(code_text):
     m = re.search(r"class\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", str(code_text or ""))
     return m.group(1) if m else ""
+
+
+def _normalize_kline_type(value):
+    v = str(value or "").strip()
+    if not v:
+        return "1min"
+    return v
+
+
+def _apply_kline_type_to_code(code_text, kline_type):
+    code = str(code_text or "")
+    tf = _normalize_kline_type(kline_type)
+    pattern = r"trigger_timeframe\s*=\s*['\"][^'\"]+['\"]"
+    if re.search(pattern, code):
+        return re.sub(pattern, f'trigger_timeframe="{tf}"', code, count=1)
+    return code
 
 
 def _build_ai_analysis(strategy_intent, strategy_id, strategy_name, code_template=None):
@@ -334,12 +354,26 @@ def _build_ai_analysis(strategy_intent, strategy_id, strategy_name, code_templat
             url = f"{url}/chat/completions"
         else:
             url = f"{url}/v1/chat/completions"
-    system_prompt = "你是资深量化开发专家。你只能根据StrategyIntent生成策略代码，禁止基于原始自然语言直接生成代码。只生成一个类，继承BaseImplementedStrategy，类中必须实现on_bar。"
+    system_prompt = (
+        "你是资深量化开发专家。你只能根据StrategyIntent生成策略代码，禁止基于原始自然语言直接生成代码。"
+        "只生成一个类，继承BaseImplementedStrategy，类中必须实现on_bar。"
+        "必须遵守A股基础交易规则并在代码中显式实现："
+        "1) T+1：当日买入不得当日卖出，需记录last_buy_day并拦截所有SELL/止损/止盈路径；"
+        "2) 涨跌停：接近涨停禁止追高买入；跌停或接近跌停不得卖出，需pending_sell次日重试；"
+        "3) 停牌与异常数据：volume<=0或close<=0或high<low直接跳过；"
+        "4) 交易单位：买卖数量必须100股整数倍，不足100不下单；"
+        "5) 重复开仓限制：已有仓位不得重复买入；"
+        "6) 时间窗：明确买入窗口与卖出窗口，窗口外不交易；"
+        "7) 风控优先级：强制止损/风险退出优先于普通信号；"
+        "8) 代码健壮性：指标输入必须数值化处理，避免None/字符串导致运行时异常。"
+    )
     user_prompt = (
         f"策略ID固定为: {strategy_id}\n"
         f"策略名称固定为: {strategy_name}\n"
         f"StrategyIntent(JSON)：\n{json.dumps(intent, ensure_ascii=False, indent=2)}\n\n"
         f"Intent解释：{intent_explain}\n\n"
+        "基础约束补充：A股T+1、涨跌停限制、停牌与异常数据过滤、100股整手、已有仓位禁止重复买入、"
+        "交易时间窗、强制风控优先、pending_sell重试机制，必须全部落地到代码。\n\n"
         f"请尽量遵循以下代码骨架与风格约束：\n{str(code_template or '').strip()}\n\n"
         "返回格式：先给Intent可解释性说明，再给```python```代码块。代码需可直接运行于当前项目。"
     )
@@ -489,16 +523,19 @@ async def api_strategy_manager_analyze(req: StrategyAnalyzeRequest):
     strategy_name = str(req.strategy_name or f"AI策略{strategy_id}").strip()
     intent = intent_engine.from_human_input(req.template_text)
     result = _build_ai_analysis(intent.to_dict(), strategy_id, strategy_name, req.code_template)
+    kline_type = _normalize_kline_type(req.kline_type)
+    code_text = _apply_kline_type_to_code(result.get("code", ""), kline_type)
     return {
         "status": "success",
         "source": "human",
         "intent_stage": "中书省前置层",
         "strategy_id": strategy_id,
         "strategy_name": strategy_name,
+        "kline_type": kline_type,
         "strategy_intent": result.get("strategy_intent", {}),
         "intent_explain": result.get("intent_explain", ""),
         "analysis_text": result.get("analysis_text", ""),
-        "code": result.get("code", ""),
+        "code": code_text,
         "class_name": result.get("class_name", ""),
         "cabinet_flow": ["中书省前置层(Intent)", "中书省(策略生成)", "门下省(风控)", "尚书省(执行)"]
     }
@@ -510,16 +547,19 @@ async def api_strategy_manager_analyze_market(req: StrategyMarketAnalyzeRequest)
     strategy_name = str(req.strategy_name or f"市场驱动策略{strategy_id}").strip()
     intent = intent_engine.from_market_analysis(req.market_state)
     result = _build_ai_analysis(intent.to_dict(), strategy_id, strategy_name, req.code_template)
+    kline_type = _normalize_kline_type(req.kline_type)
+    code_text = _apply_kline_type_to_code(result.get("code", ""), kline_type)
     return {
         "status": "success",
         "source": "market",
         "intent_stage": "中书省前置层",
         "strategy_id": strategy_id,
         "strategy_name": strategy_name,
+        "kline_type": kline_type,
         "strategy_intent": result.get("strategy_intent", {}),
         "intent_explain": result.get("intent_explain", ""),
         "analysis_text": result.get("analysis_text", ""),
-        "code": result.get("code", ""),
+        "code": code_text,
         "class_name": result.get("class_name", ""),
         "cabinet_flow": ["中书省前置层(Intent)", "中书省(策略生成)", "门下省(风控)", "尚书省(执行)"]
     }
@@ -541,6 +581,7 @@ async def api_strategy_manager_add(req: StrategyAddRequest):
             "analysis_text": req.analysis_text or "",
             "strategy_intent": strategy_intent,
             "source": req.source or "",
+            "kline_type": _normalize_kline_type(req.kline_type),
             "raw_requirement_title": req.raw_requirement_title or "",
             "raw_requirement": req.raw_requirement or ""
         })
@@ -566,6 +607,8 @@ async def api_strategy_manager_update(req: StrategyUpdateRequest):
             payload["analysis_text"] = req.analysis_text
         if req.source is not None:
             payload["source"] = req.source
+        if req.kline_type is not None:
+            payload["kline_type"] = _normalize_kline_type(req.kline_type)
         if req.raw_requirement_title is not None:
             payload["raw_requirement_title"] = req.raw_requirement_title
         if req.raw_requirement is not None:

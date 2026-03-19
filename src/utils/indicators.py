@@ -37,15 +37,34 @@ class Indicators:
         return resampled.reset_index()
 
     @staticmethod
+    def _to_numeric_series(data, preferred_col='close'):
+        if isinstance(data, pd.Series):
+            return pd.to_numeric(data, errors='coerce')
+        if isinstance(data, pd.DataFrame):
+            if preferred_col in data.columns:
+                return pd.to_numeric(data[preferred_col], errors='coerce')
+            for c in ['close', 'high', 'low', 'open', 'volume', 'vol']:
+                if c in data.columns:
+                    return pd.to_numeric(data[c], errors='coerce')
+            numeric_cols = [c for c in data.columns if c not in ('dt', 'code')]
+            if numeric_cols:
+                return pd.to_numeric(data[numeric_cols[0]], errors='coerce')
+            return pd.Series(dtype=float)
+        return pd.to_numeric(pd.Series(data), errors='coerce')
+
+    @staticmethod
     def MA(series, window):
-        return series.rolling(window=window).mean()
+        s = Indicators._to_numeric_series(series)
+        return s.rolling(window=window).mean()
 
     @staticmethod
     def EMA(series, window):
-        return series.ewm(span=window, adjust=False).mean()
+        s = Indicators._to_numeric_series(series)
+        return s.ewm(span=window, adjust=False).mean()
 
     @staticmethod
     def MACD(close_series, fast=12, slow=26, signal=9):
+        close_series = Indicators._to_numeric_series(close_series)
         exp1 = Indicators.EMA(close_series, fast)
         exp2 = Indicators.EMA(close_series, slow)
         dif = exp1 - exp2
@@ -55,6 +74,7 @@ class Indicators:
 
     @staticmethod
     def RSI(close_series, window=14):
+        close_series = Indicators._to_numeric_series(close_series)
         delta = close_series.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
@@ -79,7 +99,16 @@ class Indicators:
         return k, d, j
 
     @staticmethod
-    def ATR(high, low, close, window=14):
+    def ATR(high, low=None, close=None, window=14):
+        if low is None and close is None and isinstance(high, pd.DataFrame):
+            df = high
+            high = Indicators._to_numeric_series(df, 'high')
+            low = Indicators._to_numeric_series(df, 'low')
+            close = Indicators._to_numeric_series(df, 'close')
+        else:
+            high = Indicators._to_numeric_series(high, 'high')
+            low = Indicators._to_numeric_series(low, 'low')
+            close = Indicators._to_numeric_series(close, 'close')
         tr1 = high - low
         tr2 = abs(high - close.shift())
         tr3 = abs(low - close.shift())
@@ -121,8 +150,9 @@ class Indicators:
         return Indicators.KDJ(high, low, close, n=n, m1=m1, m2=m2)
 
     @staticmethod
-    def atr(high, low, close, window=14):
-        return Indicators.ATR(high, low, close, window=window)
+    def atr(high, low=None, close=None, window=14, period=None, timeperiod=None, **kwargs):
+        w = period if period is not None else (timeperiod if timeperiod is not None else window)
+        return Indicators.ATR(high, low, close, window=int(w))
 
     @staticmethod
     def bollinger_bands(close, window=20, num_std=2):

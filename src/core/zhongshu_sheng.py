@@ -14,7 +14,7 @@ class ZhongshuSheng:
         Generate signals for all strategies for the current bar.
         """
         signals = []
-        runnable = set(runnable_strategy_ids) if runnable_strategy_ids else None
+        runnable = set(runnable_strategy_ids) if runnable_strategy_ids is not None else None
         ctx = strategy_context if isinstance(strategy_context, dict) else {}
         strategy_ctx_map = {}
         if isinstance(ctx.get("__by_strategy__"), dict):

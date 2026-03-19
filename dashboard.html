@@ -547,6 +547,7 @@
                         </div>
                     </div>
                     <div class="text-[10px] text-slate-500 mt-2">K线来源: <span id="ind-source-info" class="text-slate-300">--</span></div>
+                    <div class="text-[10px] text-slate-500 mt-1">本轮参与策略周期汇总（静态）: <span id="ind-strategy-tf-summary" class="text-slate-300">--</span></div>
                 </div>
             </div>
         </section>
@@ -724,7 +725,7 @@
                             <tr>
                                 <th class="px-3 py-2 text-left">策略ID</th>
                                 <th class="px-3 py-2 text-left">策略名称</th>
-                                <th class="px-3 py-2 text-left">类型</th>
+                                <th class="px-3 py-2 text-left">K线类型</th>
                                 <th class="px-3 py-2 text-left">策略详情说明</th>
                                 <th class="px-3 py-2 text-left">策略代码</th>
                                 <th class="px-3 py-2 text-left">原始需求</th>
@@ -745,7 +746,7 @@
                 <div class="text-white font-bold"><i class="fa-solid fa-circle-info mr-2 text-amber-300"></i>策略详情</div>
                 <button onclick="closeStrategyDetailModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="px-4 py-3 border-b border-slate-700 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="px-4 py-3 border-b border-slate-700 grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
                     <div class="text-xs text-slate-400 mb-1">策略ID</div>
                     <input id="strategy-detail-id" type="text" readonly class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
@@ -779,6 +780,50 @@
             </div>
         </div>
     </div>
+    <div id="strategy-edit-modal" class="hidden fixed inset-0 bg-black/70 z-[153] flex items-center justify-center p-6">
+        <div class="w-[980px] max-w-[96vw] h-[84vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-pen-to-square mr-2 text-amber-300"></i>策略编辑</div>
+                <button onclick="closeStrategyEditModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="px-4 py-3 border-b border-slate-700 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <div class="text-xs text-slate-400 mb-1">策略ID</div>
+                    <input id="strategy-edit-id" type="text" readonly class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200">
+                </div>
+                <div>
+                    <div class="text-xs text-slate-400 mb-1">策略名称</div>
+                    <input id="strategy-edit-name" type="text" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+                </div>
+                <div>
+                    <div class="text-xs text-slate-400 mb-1">来源类型</div>
+                    <select id="strategy-edit-source" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+                        <option value="human">用户输入</option>
+                        <option value="market">行情驱动</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex-1 p-4 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="space-y-2">
+                    <div class="text-xs text-slate-300">策略详情说明</div>
+                    <textarea id="strategy-edit-analysis" class="h-40 w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200"></textarea>
+                    <div class="text-xs text-slate-300" id="strategy-edit-raw-title-label">原始需求</div>
+                    <textarea id="strategy-edit-raw" class="h-40 w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200"></textarea>
+                </div>
+                <div class="space-y-2">
+                    <div class="text-xs text-slate-300">策略代码</div>
+                    <textarea id="strategy-edit-code" class="h-[334px] w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs font-mono text-emerald-200"></textarea>
+                </div>
+            </div>
+            <div class="px-4 py-3 border-t border-slate-700 flex items-center justify-between">
+                <div id="strategy-edit-status" class="text-xs text-slate-400">进入编辑模式</div>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeStrategyEditModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-600">取消</button>
+                    <button onclick="saveStrategyEditModal()" class="bg-amber-700 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-xs border border-amber-500">保存生效</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="strategy-create-modal" class="hidden fixed inset-0 bg-black/70 z-[150] flex items-center justify-center p-6">
         <div class="w-[980px] max-w-[96vw] h-[82vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
@@ -795,6 +840,17 @@
                     <select id="strategy-intent-source" onchange="setStrategyIntentSourceUI()" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
                         <option value="human">Human-driven（用户输入）</option>
                         <option value="market">Market-driven（行情驱动）</option>
+                    </select>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-400 mb-1">K线类型</div>
+                    <select id="strategy-kline-type" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100">
+                        <option value="1min">1min</option>
+                        <option value="5min">5min</option>
+                        <option value="15min">15min</option>
+                        <option value="30min">30min</option>
+                        <option value="60min">60min</option>
+                        <option value="D">D(日线)</option>
                     </select>
                 </div>
                 <div class="flex items-end gap-2">
@@ -851,9 +907,15 @@
             </div>
             <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700" id="kline-modal-subtitle">--</div>
             <div id="kline-modal-legend" class="px-4 py-2 text-[11px] text-slate-300 border-b border-slate-700 flex flex-wrap gap-3"></div>
-            <div class="flex-1 bg-slate-950 overflow-hidden">
+            <div class="relative flex-1 bg-slate-950 overflow-hidden">
                 <div id="kline-modal-chart" class="w-full h-full"></div>
                 <img id="kline-modal-image-fallback" class="hidden w-full h-full object-contain" alt="K线图（兼容模式）" />
+                <div id="kline-modal-loading" class="hidden absolute inset-0 z-20 bg-slate-950/80 flex items-center justify-center">
+                    <div class="flex items-center gap-2 text-slate-200 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin text-cyan-300"></i>
+                        <span id="kline-modal-loading-text">K线加载中...</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -930,12 +992,16 @@
         let backtestResultRecovered = false;
         let strategyManagerRows = [];
         let strategyManagerDetailId = null;
+        let strategyManagerEditingId = null;
         let pendingGeneratedStrategy = null;
         let klineModalTimer = null;
         let klineModalOpened = false;
         let currentBacktestChartCtx = null;
         let klineLastProgressDate = null;
         let klineHasRenderedData = false;
+        let klinePreloadKey = null;
+        let klinePreloadPayload = null;
+        let klineLoadingShownAt = 0;
         let klineChart = null;
         let klineCandlesSeries = null;
         let klineVolumeSeries = null;
@@ -947,6 +1013,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
     def __init__(self):
         super().__init__("{{STRATEGY_ID}}", "{{STRATEGY_NAME}}", trigger_timeframe="1min")
         self.history = {}
+        self.last_buy_day = {}
 
     def on_bar(self, kline):
         code = kline['code']
@@ -960,6 +1027,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         close = float(kline['close'])
         buy_qty = int(self._qty())
         if qty <= 0:
+            self.last_buy_day[code] = str(pd.to_datetime(kline['dt'], errors='coerce').strftime('%Y-%m-%d'))
             return {
                 'strategy_id': self.id,
                 'code': code,
@@ -970,6 +1038,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 'stop_loss': close * 0.97,
                 'take_profit': None
             }
+        curr_day = str(pd.to_datetime(kline['dt'], errors='coerce').strftime('%Y-%m-%d'))
+        if self.last_buy_day.get(code) == curr_day:
+            return None
         return None`;
         const DIAG_STATE = {
             wsConnected: false,
@@ -1467,10 +1538,23 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 setMetricText('ind-rsi', rsi.toFixed(2), rsi);
             }
             const source = document.getElementById('ind-source-info');
+            const tfSummary = document.getElementById('ind-strategy-tf-summary');
             if (source) {
                 const tf = String(data.kline_timeframe || '--');
                 const dt = String(data.kline_dt || data.time || '--');
-                source.innerText = `${tf} · ${dt}`;
+                const runTf = Array.isArray(data.runnable_timeframes) ? data.runnable_timeframes.join('/') : '';
+                const runIds = Array.isArray(data.runnable_strategy_ids) ? data.runnable_strategy_ids.join(',') : '';
+                if (runTf || runIds) {
+                    source.innerText = `${tf} · ${dt} · 本次触发: ${runTf || '--'}${runIds ? ` (${runIds})` : ''}`;
+                } else {
+                    source.innerText = `${tf} · ${dt}`;
+                }
+            }
+            if (tfSummary && data.strategy_timeframes && typeof data.strategy_timeframes === 'object') {
+                const pairs = Object.keys(data.strategy_timeframes)
+                    .sort((a, b) => String(a).localeCompare(String(b)))
+                    .map(sid => `${sid}:${String(data.strategy_timeframes[sid] || '--')}`);
+                tfSummary.innerText = pairs.length ? pairs.join(' | ') : '--';
             }
         }
 
@@ -2443,12 +2527,13 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const enabled = !!r.enabled;
                 const statusCls = enabled ? 'text-emerald-300' : 'text-slate-400';
                 const statusTxt = enabled ? '启用中' : '已停用';
-                const kindTxt = r.builtin ? '内置' : '自定义';
                 const toggleTxt = enabled ? '停用' : '启用';
                 const toggleCls = enabled ? 'bg-amber-700 hover:bg-amber-600 border-amber-500' : 'bg-emerald-700 hover:bg-emerald-600 border-emerald-500';
                 const delBtn = r.deletable ? `<button onclick="deleteStrategyManaged('${sid}')" class="text-white px-2 py-1 rounded text-[11px] border bg-rose-700 hover:bg-rose-600 border-rose-500">删除</button>` : '';
                 const detailBtn = `<button onclick="openStrategyDetailModal('${sid}')" class="text-white px-2 py-1 rounded text-[11px] border bg-sky-700 hover:bg-sky-600 border-sky-500">详情</button>`;
+                const editBtn = r.editable ? `<button onclick="openStrategyEditModal('${sid}')" class="text-white px-2 py-1 rounded text-[11px] border bg-amber-700 hover:bg-amber-600 border-amber-500">编辑</button>` : '';
                 const sourceLabel = String(r.source_label || (r.source === 'market' ? '行情驱动' : (r.source === 'human' ? '用户输入' : '--')));
+                const klineType = String(r.kline_type || '--');
                 const rawTitle = String(r.raw_requirement_title || '原始需求');
                 const scoreRaw = r.score_total;
                 const scoreText = (scoreRaw === null || scoreRaw === undefined || !Number.isFinite(Number(scoreRaw))) ? '--' : Number(scoreRaw).toFixed(1);
@@ -2457,7 +2542,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     <tr class="hover:bg-slate-800/40">
                         <td class="px-3 py-2 text-slate-200 font-mono">${sid}</td>
                         <td class="px-3 py-2 text-slate-200">${String(r.name || sid)}</td>
-                        <td class="px-3 py-2 text-slate-400">${kindTxt}<span class="ml-1 text-[11px] text-slate-500">(${sourceLabel})</span></td>
+                        <td class="px-3 py-2 text-slate-300 font-mono">${klineType}<span class="ml-1 text-[11px] text-slate-500">(${sourceLabel})</span></td>
                         <td class="px-3 py-2 text-slate-300">${shortText(r.analysis_text || '')}</td>
                         <td class="px-3 py-2 text-cyan-300 font-mono">${shortText(r.code || '')}</td>
                         <td class="px-3 py-2 text-slate-300"><span class="text-slate-500">${rawTitle}：</span>${shortText(r.raw_requirement || '')}</td>
@@ -2466,6 +2551,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                         <td class="px-3 py-2 text-right">
                             <div class="inline-flex gap-1">
                                 ${detailBtn}
+                                ${editBtn}
                                 <button onclick="toggleStrategyManaged('${sid}', ${enabled ? 'false' : 'true'})" class="text-white px-2 py-1 rounded text-[11px] border ${toggleCls}">${toggleTxt}</button>
                                 ${delBtn}
                             </div>
@@ -2574,6 +2660,90 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             strategyManagerDetailId = null;
         }
 
+        function renderStrategyEditRawTitle() {
+            const source = String(document.getElementById('strategy-edit-source')?.value || 'human');
+            const label = document.getElementById('strategy-edit-raw-title-label');
+            if (label) label.innerText = source === 'market' ? '原始需求（行情状态）' : '原始需求（策略模板）';
+        }
+
+        function openStrategyEditModal(strategyId) {
+            const sid = String(strategyId || '');
+            const row = strategyManagerRows.find(x => String(x.id || '') === sid);
+            if (!row || !row.editable) return;
+            strategyManagerEditingId = sid;
+            const modal = document.getElementById('strategy-edit-modal');
+            if (modal) modal.classList.remove('hidden');
+            const source = String(row.source || '').trim().toLowerCase() === 'market' ? 'market' : 'human';
+            const idInput = document.getElementById('strategy-edit-id');
+            const nameInput = document.getElementById('strategy-edit-name');
+            const sourceInput = document.getElementById('strategy-edit-source');
+            const analysisInput = document.getElementById('strategy-edit-analysis');
+            const codeInput = document.getElementById('strategy-edit-code');
+            const rawInput = document.getElementById('strategy-edit-raw');
+            const status = document.getElementById('strategy-edit-status');
+            if (idInput) idInput.value = sid;
+            if (nameInput) nameInput.value = String(row.name || sid);
+            if (sourceInput) sourceInput.value = source;
+            if (analysisInput) analysisInput.value = String(row.analysis_text || '');
+            if (codeInput) codeInput.value = String(row.code || '');
+            if (rawInput) rawInput.value = String(row.raw_requirement || '');
+            if (status) status.innerText = '进入编辑模式';
+            if (sourceInput) sourceInput.onchange = renderStrategyEditRawTitle;
+            renderStrategyEditRawTitle();
+        }
+
+        function closeStrategyEditModal() {
+            const modal = document.getElementById('strategy-edit-modal');
+            if (modal) modal.classList.add('hidden');
+            strategyManagerEditingId = null;
+        }
+
+        async function saveStrategyEditModal() {
+            const status = document.getElementById('strategy-edit-status');
+            const sid = String(strategyManagerEditingId || '');
+            if (!sid) return;
+            const nameText = String(document.getElementById('strategy-edit-name')?.value || '').trim();
+            const source = String(document.getElementById('strategy-edit-source')?.value || 'human');
+            const analysisText = String(document.getElementById('strategy-edit-analysis')?.value || '').trim();
+            const codeText = String(document.getElementById('strategy-edit-code')?.value || '').trim();
+            const rawRequirement = String(document.getElementById('strategy-edit-raw')?.value || '').trim();
+            const rawTitle = source === 'market' ? '行情状态' : '策略模板';
+            if (!nameText) {
+                if (status) status.innerText = '策略名称不能为空';
+                return;
+            }
+            if (!codeText) {
+                if (status) status.innerText = '策略代码不能为空';
+                return;
+            }
+            try {
+                if (status) status.innerText = '保存中...';
+                const res = await fetch('/api/strategy_manager/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        strategy_id: sid,
+                        strategy_name: nameText,
+                        source: source,
+                        analysis_text: analysisText,
+                        code: codeText,
+                        raw_requirement_title: rawTitle,
+                        raw_requirement: rawRequirement
+                    })
+                });
+                const data = await res.json();
+                if (data.status !== 'success') throw new Error(data.msg || '保存失败');
+                await fetch('/api/control/reload_strategies', { method: 'POST' });
+                if (status) status.innerText = '保存成功，已生效';
+                logMessage('SYSTEM', `策略 ${sid} 已更新`, 'success');
+                closeStrategyEditModal();
+                await loadStrategyManager();
+                await fetchGlobalStrategies();
+            } catch (e) {
+                if (status) status.innerText = `保存失败: ${e}`;
+            }
+        }
+
         function openStrategyCreateModal() {
             pendingGeneratedStrategy = null;
             const modal = document.getElementById('strategy-create-modal');
@@ -2590,6 +2760,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (nameInput && !nameInput.value) nameInput.value = `智能策略${Date.now().toString().slice(-4)}`;
             const sourceSelect = document.getElementById('strategy-intent-source');
             if (sourceSelect && !sourceSelect.value) sourceSelect.value = 'human';
+            const klineTypeSelect = document.getElementById('strategy-kline-type');
+            if (klineTypeSelect && !klineTypeSelect.value) klineTypeSelect.value = '1min';
             setStrategyIntentSourceUI();
         }
 
@@ -2644,8 +2816,10 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const codeTplInput = document.getElementById('strategy-code-template-input');
             const nameInput = document.getElementById('strategy-create-name');
             const sourceSelect = document.getElementById('strategy-intent-source');
+            const klineTypeSelect = document.getElementById('strategy-kline-type');
             const status = document.getElementById('strategy-create-status');
             const source = String(sourceSelect?.value || 'human');
+            const klineType = String(klineTypeSelect?.value || '1min');
             const templateText = String(tplInput?.value || '').trim();
             const codeTemplateText = String(codeTplInput?.value || '').trim();
             const strategyName = String(nameInput?.value || '').trim();
@@ -2661,12 +2835,14 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     ? {
                         market_state: marketState,
                         strategy_name: strategyName || null,
-                        code_template: codeTemplateText || STRATEGY_CODE_TEMPLATE_DEFAULT
+                        code_template: codeTemplateText || STRATEGY_CODE_TEMPLATE_DEFAULT,
+                        kline_type: klineType
                     }
                     : {
                         template_text: templateText,
                         strategy_name: strategyName || null,
-                        code_template: codeTemplateText || STRATEGY_CODE_TEMPLATE_DEFAULT
+                        code_template: codeTemplateText || STRATEGY_CODE_TEMPLATE_DEFAULT,
+                        kline_type: klineType
                     };
                 const res = await fetch(endpoint, {
                     method: 'POST',
@@ -2682,6 +2858,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     analysis_text: String(data.analysis_text || ''),
                     template_text: templateText,
                     source: source,
+                    kline_type: klineType,
                     strategy_intent: data.strategy_intent || {},
                     intent_explain: String(data.intent_explain || ''),
                     raw_requirement_title: source === 'market' ? '行情状态' : '策略模板',
@@ -2732,6 +2909,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                         analysis_text: pendingGeneratedStrategy.analysis_text || '',
                         strategy_intent: pendingGeneratedStrategy.strategy_intent || null,
                         source: pendingGeneratedStrategy.source || 'human',
+                        kline_type: pendingGeneratedStrategy.kline_type || '1min',
                         raw_requirement_title: pendingGeneratedStrategy.raw_requirement_title || '策略模板',
                         raw_requirement: pendingGeneratedStrategy.raw_requirement || ''
                     })
@@ -3132,6 +3310,42 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             imgEl.classList.add('hidden');
         }
 
+        async function setKlineModalLoading(show, text = 'K线加载中...') {
+            const box = document.getElementById('kline-modal-loading');
+            const label = document.getElementById('kline-modal-loading-text');
+            if (label) label.innerText = text;
+            if (!box) return;
+            if (show) {
+                klineLoadingShownAt = Date.now();
+                box.classList.remove('hidden');
+                return;
+            }
+            const minShowMs = 260;
+            const waitMs = Math.max(0, minShowMs - (Date.now() - klineLoadingShownAt));
+            if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+            box.classList.add('hidden');
+        }
+
+        function getKlineCtxKey(ctx) {
+            if (!ctx) return '';
+            return `${ctx.stock}|${ctx.start}|${ctx.end}`;
+        }
+
+        async function preloadKlineModalData(ctx) {
+            const key = getKlineCtxKey(ctx);
+            if (!key) return;
+            if (klinePreloadKey === key && klinePreloadPayload) return;
+            try {
+                const q = `stock=${encodeURIComponent(ctx.stock)}&start=${encodeURIComponent(ctx.start)}&end=${encodeURIComponent(ctx.end)}`;
+                const res = await fetch(`/api/backtest/kline_data?${q}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status !== 'success' || !Array.isArray(data.candles) || !data.candles.length) return;
+                klinePreloadKey = key;
+                klinePreloadPayload = data;
+            } catch (_) {}
+        }
+
         function renderKlineChartData(payload) {
             if (!ensureKlineChart()) return;
             setKlineRenderMode('chart');
@@ -3161,7 +3375,14 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (subtitle) subtitle.innerText = `${stock} · 区间 ${start} ~ ${end} · 按回测进度动态绘制${progressDate ? `（${progressDate}）` : ''}`;
             const q = `stock=${encodeURIComponent(stock)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&_t=${Date.now()}`;
             const run = async () => {
+                await setKlineModalLoading(true, 'K线加载中...');
                 try {
+                    const key = getKlineCtxKey(currentBacktestChartCtx);
+                    if (key && key === klinePreloadKey && klinePreloadPayload && !force) {
+                        renderKlineChartData(klinePreloadPayload);
+                        await setKlineModalLoading(false);
+                        return;
+                    }
                     const res = await fetch(`/api/backtest/kline_data?${q}`);
                     if (!res.ok) {
                         if (res.status === 404 && !klineHasRenderedData) {
@@ -3169,6 +3390,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                             const img = document.getElementById('kline-modal-image-fallback');
                             if (img) img.src = `/api/backtest/kline_chart?${q}`;
                         }
+                        await setKlineModalLoading(false);
                         return;
                     }
                     const data = await res.json();
@@ -3178,15 +3400,20 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                             const img = document.getElementById('kline-modal-image-fallback');
                             if (img) img.src = `/api/backtest/kline_chart?${q}`;
                         }
+                        await setKlineModalLoading(false);
                         return;
                     }
                     renderKlineChartData(data);
+                    klinePreloadKey = getKlineCtxKey(currentBacktestChartCtx);
+                    klinePreloadPayload = data;
+                    await setKlineModalLoading(false);
                 } catch (_) {
                     if (!klineHasRenderedData) {
                         setKlineRenderMode('image');
                         const img = document.getElementById('kline-modal-image-fallback');
                         if (img) img.src = `/api/backtest/kline_chart?${q}`;
                     }
+                    await setKlineModalLoading(false);
                 }
             };
             if (force) return run();
@@ -3221,6 +3448,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 return;
             }
             klineModalOpened = true;
+            setKlineModalLoading(true, 'K线加载中...');
             const modal = document.getElementById('kline-modal');
             const title = document.getElementById('kline-modal-title');
             const container = document.getElementById('kline-modal-chart');
@@ -3342,6 +3570,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const fallbackCtx = buildBacktestChartCtxFromForm();
                 if (fallbackCtx) currentBacktestChartCtx = fallbackCtx;
             }
+            if (currentBacktestChartCtx) preloadKlineModalData(currentBacktestChartCtx);
             const bar = document.getElementById('backtest-progress-bar');
             const txt = document.getElementById('backtest-status-text');
             const dt = document.getElementById('backtest-date-display');

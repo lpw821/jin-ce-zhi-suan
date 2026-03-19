@@ -71,7 +71,20 @@ def list_builtin_strategy_meta():
         Strategy00(), Strategy01(), Strategy02(), Strategy03(), Strategy04(),
         Strategy05(), Strategy06(), Strategy07(), Strategy08(), Strategy09()
     ]
-    return [{"id": str(s.id), "name": str(s.name), "builtin": True} for s in items]
+    return [{
+        "id": str(s.id),
+        "name": str(s.name),
+        "builtin": True,
+        "kline_type": str(getattr(s, "trigger_timeframe", "1min") or "1min")
+    } for s in items]
+
+
+def infer_kline_type_from_code(code_text):
+    code = str(code_text or "")
+    m = re.search(r"trigger_timeframe\s*=\s*['\"]([^'\"]+)['\"]", code)
+    if m:
+        return str(m.group(1)).strip() or "1min"
+    return "1min"
 
 
 def load_custom_strategies():
@@ -138,6 +151,7 @@ def list_all_strategy_meta():
             "id": sid,
             "name": str(b["name"]),
             "builtin": True,
+            "kline_type": str(b.get("kline_type", "1min")),
             "enabled": sid not in disabled,
             "deletable": True,
             "editable": False,
@@ -170,6 +184,7 @@ def list_all_strategy_meta():
             "id": sid,
             "name": str(c.get("name", sid)),
             "builtin": False,
+            "kline_type": str(c.get("kline_type", "")).strip() or infer_kline_type_from_code(c.get("code", "")),
             "enabled": sid not in disabled,
             "deletable": True,
             "editable": True,
@@ -233,6 +248,7 @@ class {cls}(BaseImplementedStrategy):
     def __init__(self):
         super().__init__(\"{strategy_id}\", \"{title}\", trigger_timeframe=\"1min\")
         self.history = {{}}
+        self.last_buy_day = {{}}
 
     def on_bar(self, kline):
         code = kline['code']
@@ -254,6 +270,7 @@ class {cls}(BaseImplementedStrategy):
             buy_qty = int(self._qty())
             if buy_qty <= 0:
                 return None
+            self.last_buy_day[code] = str(pd.to_datetime(kline['dt'], errors='coerce').strftime('%Y-%m-%d'))
             return {{
                 'strategy_id': self.id,
                 'code': code,
@@ -265,6 +282,9 @@ class {cls}(BaseImplementedStrategy):
                 'take_profit': None
             }}
         if qty > 0 and float(ma_fast.iloc[-2]) >= float(ma_slow.iloc[-2]) and float(ma_fast.iloc[-1]) < float(ma_slow.iloc[-1]):
+            curr_day = str(pd.to_datetime(kline['dt'], errors='coerce').strftime('%Y-%m-%d'))
+            if self.last_buy_day.get(code) == curr_day:
+                return None
             return self.create_exit_signal(kline, qty, \"MA Cross Exit\")
         return None
 """

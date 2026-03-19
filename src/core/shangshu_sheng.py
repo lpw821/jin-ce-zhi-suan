@@ -4,6 +4,7 @@ from src.ministries.hu_bu_revenue import HuBuRevenue
 from src.ministries.bing_bu_war import BingBuWar
 from src.ministries.xing_bu_justice import XingBuJustice
 from src.utils.constants import *
+import pandas as pd
 
 class ShangshuSheng:
     """
@@ -14,6 +15,12 @@ class ShangshuSheng:
         self.bing_bu = bing_bu
         self.xing_bu = xing_bu
         self.positions = {} # Strategy ID -> {Stock Code -> Position Dict}
+
+    def _trade_day(self, dt_value):
+        x = pd.to_datetime(dt_value, errors='coerce')
+        if pd.isna(x):
+            return ""
+        return x.strftime("%Y-%m-%d")
         
     def execute_order(self, strategy_id, signal, kline, hu_bu_account=None):
         """
@@ -79,6 +86,7 @@ class ShangshuSheng:
             pos['qty'] = new_qty
             pos['avg_price'] = new_avg
             pos['market_value'] = new_qty * fill_price # Mark to market immediately
+            pos['last_buy_day'] = self._trade_day(kline.get('dt'))
             
             hu_bu.record_transaction(strategy_id, kline['dt'], 'BUY', fill_price, qty, cost)
 
@@ -88,6 +96,11 @@ class ShangshuSheng:
                  return False
             
             pos = self.positions[strategy_id][code]
+            buy_day = str(pos.get('last_buy_day', '')).strip()
+            curr_day = self._trade_day(kline.get('dt'))
+            if buy_day and curr_day and buy_day == curr_day:
+                self.xing_bu.record_rejection(strategy_id, 'EXEC_T1_BLOCK', f"T+1 block: {code} bought today cannot be sold", kline['dt'])
+                return False
             if pos['qty'] < qty:
                  self.xing_bu.record_violation(strategy_id, 'SELL_OVER_QTY', f"Sell {qty} > Holding {pos['qty']}", kline['dt'])
                  return False
@@ -139,6 +152,10 @@ class ShangshuSheng:
         for strategy_id, stocks in self.positions.items():
             if code in stocks:
                 pos = stocks[code]
+                buy_day = str(pos.get('last_buy_day', '')).strip()
+                curr_day = self._trade_day(kline.get('dt'))
+                if buy_day and curr_day and buy_day == curr_day:
+                    continue
                 triggered, type_, price = self.bing_bu.check_stop_orders(pos, kline)
                 
                 if triggered:

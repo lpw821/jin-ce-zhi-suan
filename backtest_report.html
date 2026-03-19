@@ -101,8 +101,14 @@
                 <button id="report-kline-close-btn" class="text-slate-400 hover:text-white text-lg leading-none">×</button>
             </div>
             <div id="report-kline-subtitle" class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">--</div>
-            <div class="flex-1 bg-slate-950 overflow-hidden">
+            <div class="relative flex-1 bg-slate-950 overflow-hidden">
                 <div id="report-kline-chart" class="w-full h-full"></div>
+                <div id="report-kline-loading" class="hidden absolute inset-0 z-20 bg-slate-950/80 flex items-center justify-center">
+                    <div class="flex items-center gap-2 text-slate-200 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin text-cyan-300"></i>
+                        <span id="report-kline-loading-text">K线加载中...</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -113,6 +119,8 @@
         let reportKlineChart = null;
         let reportKlineCandleSeries = null;
         let reportKlineVolumeSeries = null;
+        let reportKlineLoadingShownAt = 0;
+        const reportKlinePayloadCache = {};
         let strategyMetaLoaded = false;
         const STRATEGY_NAME_MAP = {
             "00": "长期持有一次买入",
@@ -368,6 +376,7 @@
                     <div class="text-slate-300">实战可行：${practicality.toFixed(1)} / 15</div>
                 `;
                 wrap.appendChild(card);
+                if (currentReportId) preloadStrategyKline(currentReportId, sid);
             });
         }
 
@@ -408,9 +417,42 @@
             return true;
         }
 
+        async function setReportKlineLoading(show, text = 'K线加载中...') {
+            const box = document.getElementById('report-kline-loading');
+            const label = document.getElementById('report-kline-loading-text');
+            if (label) label.innerText = text;
+            if (!box) return;
+            if (show) {
+                reportKlineLoadingShownAt = Date.now();
+                box.classList.remove('hidden');
+                return;
+            }
+            const minShowMs = 260;
+            const waitMs = Math.max(0, minShowMs - (Date.now() - reportKlineLoadingShownAt));
+            if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+            box.classList.add('hidden');
+        }
+
+        async function preloadStrategyKline(reportId, strategyId) {
+            const rid = String(reportId || '');
+            const sid = String(strategyId || '');
+            if (!rid || !sid) return;
+            const key = `${rid}|${sid}`;
+            if (reportKlinePayloadCache[key]) return;
+            try {
+                const q = `report_id=${encodeURIComponent(rid)}&strategy_id=${encodeURIComponent(sid)}`;
+                const res = await fetch(`/api/report/strategy/kline_data?${q}`);
+                const data = await res.json();
+                if (data.status === 'success' && Array.isArray(data.candles) && data.candles.length) {
+                    reportKlinePayloadCache[key] = data;
+                }
+            } catch (_) {}
+        }
+
         async function openStrategyKline(strategyId) {
             const sid = String(strategyId || '');
             if (!sid || !currentReportId) return;
+            await setReportKlineLoading(true, 'K线加载中...');
             const report = strategyReportMap[sid] || {};
             const periodLabel = STRATEGY_PERIOD_MAP[sid] || '--';
             const modal = document.getElementById('report-kline-modal');
@@ -428,9 +470,16 @@
                 reportKlineChart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
             }
             try {
-                const q = `report_id=${encodeURIComponent(currentReportId)}&strategy_id=${encodeURIComponent(sid)}`;
-                const res = await fetch(`/api/report/strategy/kline_data?${q}`);
-                const data = await res.json();
+                const key = `${currentReportId}|${sid}`;
+                let data = reportKlinePayloadCache[key] || null;
+                if (!data) {
+                    const q = `report_id=${encodeURIComponent(currentReportId)}&strategy_id=${encodeURIComponent(sid)}`;
+                    const res = await fetch(`/api/report/strategy/kline_data?${q}`);
+                    data = await res.json();
+                    if (data.status === 'success' && Array.isArray(data.candles) && data.candles.length) {
+                        reportKlinePayloadCache[key] = data;
+                    }
+                }
                 if (data.status !== 'success') return;
                 const stockCode = data.stock || '--';
                 const periodText = data.period_label || periodLabel || '--';
@@ -450,6 +499,9 @@
                 }
                 reportKlineChart.timeScale().fitContent();
             } catch (_) {}
+            finally {
+                await setReportKlineLoading(false);
+            }
         }
 
         function closeReportKline() {
