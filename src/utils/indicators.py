@@ -129,6 +129,11 @@ class Indicators:
         return Indicators.MA(series, int(w))
 
     @staticmethod
+    def ma(series, window=14, period=None, timeperiod=None, **kwargs):
+        w = period if period is not None else (timeperiod if timeperiod is not None else window)
+        return Indicators.MA(series, int(w))
+
+    @staticmethod
     def ema(series, window=14, period=None, **kwargs):
         w = period if period is not None else window
         return Indicators.EMA(series, int(w))

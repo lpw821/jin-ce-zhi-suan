@@ -483,9 +483,30 @@ def _build_ai_analysis(strategy_intent, strategy_id, strategy_name, code_templat
     intent = intent_obj.to_dict()
     intent_explain = intent_obj.explain()
     cfg = ConfigLoader.reload()
-    api_key = str(cfg.get("data_provider.llm_api_key", "") or cfg.get("data_provider.api_key", "") or cfg.get("data_provider.default_api_key", "") or "").strip()
-    base_url = str(cfg.get("data_provider.llm_api_url", "") or cfg.get("data_provider.default_api_url", "") or "").strip()
-    model_name = str(cfg.get("data_provider.llm_model", "") or "").strip() or "gpt-4o-mini"
+    api_key = str(
+        cfg.get("data_provider.strategy_llm_api_key", "")
+        or cfg.get("data_provider.llm_api_key", "")
+        or cfg.get("data_provider.api_key", "")
+        or cfg.get("data_provider.default_api_key", "")
+        or ""
+    ).strip()
+    base_url = str(
+        cfg.get("data_provider.strategy_llm_api_url", "")
+        or cfg.get("data_provider.llm_api_url", "")
+        or cfg.get("data_provider.default_api_url", "")
+        or ""
+    ).strip()
+    model_name = str(
+        cfg.get("data_provider.strategy_llm_model", "")
+        or cfg.get("data_provider.llm_model", "")
+        or ""
+    ).strip() or "gpt-4o-mini"
+    timeout_sec = int(
+        cfg.get("data_provider.strategy_llm_timeout_sec", 0)
+        or cfg.get("data_provider.llm_timeout_sec", 0)
+        or 120
+    )
+    timeout_sec = max(30, min(timeout_sec, 300))
     strategy_name = str(strategy_name or f"AI策略{strategy_id}").strip()
     fallback_code = build_fallback_strategy_code(strategy_id, strategy_name, intent_explain)
     fallback_class_name = _extract_first_class_name(fallback_code)
@@ -541,7 +562,7 @@ def _build_ai_analysis(strategy_intent, strategy_id, strategy_name, code_templat
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             raw = resp.read().decode("utf-8")
         result = json.loads(raw)
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -565,9 +586,29 @@ def _build_ai_analysis(strategy_intent, strategy_id, strategy_name, code_templat
             "strategy_intent": intent,
             "intent_explain": intent_explain
         }
-    except Exception:
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="ignore")[:240]
+        except Exception:
+            detail = ""
+        msg = f"大模型分析调用失败（HTTP {int(e.code)}）"
+        if detail:
+            msg = f"{msg}：{detail}"
         return {
-            "analysis_text": "大模型分析调用失败，已回退默认策略代码。",
+            "analysis_text": f"{msg}，已回退默认策略代码。",
+            "code": fallback_code,
+            "class_name": fallback_class_name,
+            "strategy_intent": intent,
+            "intent_explain": intent_explain
+        }
+    except Exception as e:
+        err = str(e).strip()
+        msg = f"大模型分析调用失败（{type(e).__name__}）"
+        if err:
+            msg = f"{msg}：{err[:200]}"
+        return {
+            "analysis_text": f"{msg}，已回退默认策略代码。",
             "code": fallback_code,
             "class_name": fallback_class_name,
             "strategy_intent": intent,

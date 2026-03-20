@@ -2046,7 +2046,11 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     { path: 'data_provider.default_api_url', label: '默认数据服务地址', type: 'text' },
                     { path: 'data_provider.llm_api_url', label: '智能服务地址（OpenAI兼容）', type: 'text' },
                     { path: 'data_provider.llm_api_key', label: '智能服务访问密钥', type: 'text' },
-                    { path: 'data_provider.llm_model', label: '智能模型名称', type: 'text' }
+                    { path: 'data_provider.llm_model', label: '智能模型名称', type: 'text' },
+                    { path: 'data_provider.strategy_llm_api_url', label: '新增策略智能服务地址', type: 'text' },
+                    { path: 'data_provider.strategy_llm_api_key', label: '新增策略智能服务密钥', type: 'text' },
+                    { path: 'data_provider.strategy_llm_model', label: '新增策略智能模型名称', type: 'text' },
+                    { path: 'data_provider.strategy_llm_timeout_sec', label: '新增策略智能超时秒数', type: 'number', min: 30, max: 300, step: 1, slider: true }
                 ]
             },
             {
