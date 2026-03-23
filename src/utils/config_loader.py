@@ -13,33 +13,47 @@ class ConfigLoader:
         return cls._instance
 
     def load_config(self, config_path):
-        """Load config from json file, ignoring comments"""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(base_dir))
+        base_config_path = config_path if os.path.exists(config_path) else os.path.join(project_root, "config.json")
+        base_config = self._load_json_config(base_config_path)
+        private_config_path = os.environ.get("CONFIG_PRIVATE_PATH", os.path.join(project_root, "config.private.json"))
+        private_config = self._load_json_config(private_config_path, silent=True)
+        self._config = self._deep_merge_dict(base_config, private_config)
+
+    def _load_json_config(self, config_path, silent=False):
         import re
         if not os.path.exists(config_path):
-             # Try absolute path based on this file
-             base_dir = os.path.dirname(os.path.abspath(__file__)) # src/utils
-             project_root = os.path.dirname(os.path.dirname(base_dir)) # project root
-             config_path = os.path.join(project_root, "config.json")
-        
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    # Simple comment removal: // until end of line, but be careful with http://
-                    # Better regex: match strings OR comments
-                    pattern = r'("[^"]*")|(\/\/.*)'
-                    def replace(match):
-                        if match.group(1): return match.group(1) # string
-                        return "" # comment
-                    
-                    content = re.sub(pattern, replace, content)
-                    self._config = json.loads(content)
-            except Exception as e:
+            if not silent:
+                print(f"Config file not found: {config_path}")
+            return {}
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                pattern = r'("[^"]*")|(\/\/.*)'
+                def replace(match):
+                    if match.group(1):
+                        return match.group(1)
+                    return ""
+                content = re.sub(pattern, replace, content)
+                return json.loads(content)
+        except Exception as e:
+            if not silent:
                 print(f"Error loading config: {e}")
-                self._config = {}
-        else:
-            print(f"Config file not found: {config_path}")
-            self._config = {}
+            return {}
+
+    def _deep_merge_dict(self, base, override):
+        if not isinstance(base, dict):
+            return override if override is not None else base
+        if not isinstance(override, dict):
+            return base
+        merged = dict(base)
+        for k, v in override.items():
+            if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k] = self._deep_merge_dict(merged[k], v)
+            else:
+                merged[k] = v
+        return merged
 
     def get(self, key, default=None):
         keys = key.split('.')

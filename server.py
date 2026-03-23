@@ -110,6 +110,14 @@ config = ConfigLoader()
 intent_engine = StrategyIntentEngine()
 history_sync_service = HistoryDiffSyncService()
 history_sync_scheduler_task = None
+SECRET_CONFIG_PATHS = {
+    "data_provider.tushare_token",
+    "data_provider.default_api_key",
+    "data_provider.llm_api_key",
+    "data_provider.strategy_llm_api_key",
+    "data_provider.api_key",
+}
+SECRET_MASK = "********"
 
 def _system_mode(cfg=None):
     c = cfg if cfg is not None else ConfigLoader.reload()
@@ -133,6 +141,165 @@ def _default_target_code(cfg=None):
             if code:
                 return code
     return "600036.SH"
+
+def _project_root():
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _private_config_path():
+    return os.environ.get("CONFIG_PRIVATE_PATH", os.path.join(_project_root(), "config.private.json"))
+
+def _load_json_with_comments(file_path, silent=False):
+    import re
+    if not os.path.exists(file_path):
+        return {}
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        pattern = r'("[^"]*")|(\/\/.*)'
+        def replace(match):
+            if match.group(1):
+                return match.group(1)
+            return ""
+        content = re.sub(pattern, replace, content)
+        payload = json.loads(content)
+        return payload if isinstance(payload, dict) else {}
+    except Exception as e:
+        if not silent:
+            logger.error(f"load json failed: {file_path}, {e}")
+        return {}
+
+def _deep_merge_dict(base, override):
+    if not isinstance(base, dict):
+        return override if override is not None else base
+    if not isinstance(override, dict):
+        return dict(base)
+    merged = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = _deep_merge_dict(merged[k], v)
+        else:
+            merged[k] = v
+    return merged
+
+def _path_exists(payload, path):
+    if not isinstance(payload, dict):
+        return False
+    cur = payload
+    for key in str(path).split("."):
+        if not isinstance(cur, dict) or key not in cur:
+            return False
+        cur = cur.get(key)
+    return True
+
+def _get_path_value(payload, path, default=None):
+    if not isinstance(payload, dict):
+        return default
+    cur = payload
+    for key in str(path).split("."):
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur.get(key)
+    return cur
+
+def _set_path_value(payload, path, value):
+    if not isinstance(payload, dict):
+        return
+    keys = str(path).split(".")
+    cur = payload
+    for key in keys[:-1]:
+        nxt = cur.get(key)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cur[key] = nxt
+        cur = nxt
+    cur[keys[-1]] = value
+
+def _delete_path_value(payload, path):
+    if not isinstance(payload, dict):
+        return
+    keys = str(path).split(".")
+    chain = []
+    cur = payload
+    for key in keys:
+        if not isinstance(cur, dict) or key not in cur:
+            return
+        chain.append((cur, key))
+        cur = cur.get(key)
+    parent, last_key = chain[-1]
+    parent.pop(last_key, None)
+    for parent, key in reversed(chain[:-1]):
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            parent.pop(key, None)
+        else:
+            break
+
+def _mask_secret_value(value):
+    text = str(value or "").strip()
+    return SECRET_MASK if text else ""
+
+def _mask_secret_config(payload):
+    masked = json.loads(json.dumps(payload, ensure_ascii=False))
+    for path in SECRET_CONFIG_PATHS:
+        val = _get_path_value(masked, path, "")
+        if _path_exists(masked, path):
+            _set_path_value(masked, path, _mask_secret_value(val))
+    return masked
+
+def _is_secret_mask_value(value):
+    return str(value or "").strip() == SECRET_MASK
+
+def _write_json_file(file_path, payload):
+    folder = os.path.dirname(file_path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+def _save_split_config(incoming):
+    incoming_dict = incoming if isinstance(incoming, dict) else {}
+    current_cfg = ConfigLoader.reload().to_dict()
+    merged_cfg = _deep_merge_dict(current_cfg, incoming_dict)
+
+    secret_updates = {}
+    for path in SECRET_CONFIG_PATHS:
+        if not _path_exists(incoming_dict, path):
+            continue
+        val = _get_path_value(incoming_dict, path, "")
+        if isinstance(val, str) and _is_secret_mask_value(val):
+            continue
+        secret_updates[path] = val
+
+    public_cfg = json.loads(json.dumps(merged_cfg, ensure_ascii=False))
+    for path in SECRET_CONFIG_PATHS:
+        _set_path_value(public_cfg, path, "")
+
+    cfg = ConfigLoader.reload()
+    cfg._config = public_cfg
+    cfg.save("config.json")
+
+    private_path = _private_config_path()
+    private_exists = os.path.exists(private_path)
+    if secret_updates:
+        private_cfg = _load_json_with_comments(private_path, silent=True)
+        if not isinstance(private_cfg, dict):
+            private_cfg = {}
+        private_changed = False
+        for path, val in secret_updates.items():
+            text = str(val or "")
+            old_val = _get_path_value(private_cfg, path, "")
+            if not text.strip():
+                if _path_exists(private_cfg, path):
+                    _delete_path_value(private_cfg, path)
+                    private_changed = True
+                continue
+            if str(old_val) != text:
+                _set_path_value(private_cfg, path, text)
+                private_changed = True
+        if private_changed or private_exists:
+            _write_json_file(private_path, private_cfg)
+
+    return ConfigLoader.reload()
 
 def is_live_enabled():
     cfg = ConfigLoader.reload()
@@ -887,7 +1054,7 @@ async def api_strategy_manager_delete(req: StrategyDeleteRequest):
 async def api_get_config():
     try:
         cfg = ConfigLoader.reload()
-        payload = cfg.to_dict()
+        payload = _mask_secret_config(cfg.to_dict())
         return {"status": "success", "config": payload}
     except Exception as e:
         logger.error(f"/api/config failed: {e}", exc_info=True)
@@ -899,10 +1066,7 @@ async def api_save_config(req: ConfigUpdateRequest):
     try:
         if not isinstance(req.config, dict):
             return {"status": "error", "msg": "config must be object"}
-        cfg = ConfigLoader.reload()
-        cfg._config = req.config
-        cfg.save("config.json")
-        config = ConfigLoader.reload()
+        config = _save_split_config(req.config)
         applied_log_level = _apply_log_level(config)
         current_provider_source = config.get("data_provider.source", "default")
         live_enabled = is_live_enabled()

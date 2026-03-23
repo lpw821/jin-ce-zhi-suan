@@ -323,6 +323,13 @@ class BacktestCabinet:
             await self._emit('system', {'msg': f"开始回测 {self.stock_code} ({start_date.date()} - {end_date.date()})..."})
             await self._emit('backtest_flow', {'module': '太子院', 'level': 'system', 'msg': f'校验标的与回测区间: {self.stock_code} {start_date.date()}~{end_date.date()}'})
             await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': f'装载行情数据: {self.stock_code} {start_date.date()}~{end_date.date()}...'})
+            await self._emit('backtest_progress', {
+                'progress': 2,
+                'phase': 'data_fetch',
+                'phase_label': '初始化数据源',
+                'current_date': f'{start_date.date()} ~ {end_date.date()}'
+            })
+            await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': '数据获取阶段：初始化数据源'})
             stage_started_at = perf_counter()
             provider_source = self.config.get("data_provider.source", "default")
             enable_fallback = bool(self.config.get("data_provider.enable_fallback", False))
@@ -334,17 +341,41 @@ class BacktestCabinet:
                 provider = DataProvider()
             df = self._cache_get(start_date, end_date, "1min", provider_source)
             if df.empty:
+                await self._emit('backtest_progress', {
+                    'progress': 6,
+                    'phase': 'data_fetch',
+                    'phase_label': '拉取历史K线',
+                    'current_date': f'{start_date.date()} ~ {end_date.date()}'
+                })
+                await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': f'数据获取阶段：拉取历史K线 {start_date.date()}~{end_date.date()}'})
+                await asyncio.sleep(0)
                 df = provider.fetch_minute_data(self.stock_code, start_date, end_date)
                 if df.empty and enable_fallback:
                     token = self.config.get("data_provider.tushare_token")
                     if token and provider_source != 'tushare':
                         await self._emit('system', {'msg': f"主数据源无数据，尝试 Tushare 获取 {self.stock_code} 历史K线..."})
+                        await self._emit('backtest_progress', {
+                            'progress': 8,
+                            'phase': 'data_fetch',
+                            'phase_label': '主源无数据，尝试 Tushare',
+                            'current_date': f'{start_date.date()} ~ {end_date.date()}'
+                        })
+                        await self._emit('backtest_flow', {'module': '工部', 'level': 'warning', 'msg': '数据获取阶段：主源无数据，切换 Tushare'})
+                        await asyncio.sleep(0)
                         try:
                             df = TushareProvider(token=token).fetch_minute_data(self.stock_code, start_date, end_date)
                         except Exception:
                             df = pd.DataFrame()
                 if df.empty and enable_fallback and provider_source != 'akshare':
                     await self._emit('system', {'msg': f"Tushare 无数据，尝试 Akshare 获取 {self.stock_code} 历史K线..."})
+                    await self._emit('backtest_progress', {
+                        'progress': 10,
+                        'phase': 'data_fetch',
+                        'phase_label': 'Tushare 无数据，尝试 Akshare',
+                        'current_date': f'{start_date.date()} ~ {end_date.date()}'
+                    })
+                    await self._emit('backtest_flow', {'module': '工部', 'level': 'warning', 'msg': '数据获取阶段：Tushare 无数据，切换 Akshare'})
+                    await asyncio.sleep(0)
                     try:
                         df = AkshareProvider().fetch_minute_data(self.stock_code, start_date, end_date)
                     except Exception:
@@ -363,7 +394,29 @@ class BacktestCabinet:
                     })
                     return
                 df = self.works.clean_data(df)
+                await self._emit('backtest_progress', {
+                    'progress': 15,
+                    'phase': 'data_fetch',
+                    'phase_label': '清洗数据',
+                    'current_date': f'{start_date.date()} ~ {end_date.date()}'
+                })
+                await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': '数据获取阶段：数据清洗完成，写入缓存'})
                 self._cache_set(start_date, end_date, "1min", provider_source, df)
+            else:
+                await self._emit('backtest_progress', {
+                    'progress': 12,
+                    'phase': 'data_fetch',
+                    'phase_label': '命中缓存',
+                    'current_date': f'{start_date.date()} ~ {end_date.date()}'
+                })
+                await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': '数据获取阶段：命中缓存，跳过远程拉取'})
+            await self._emit('backtest_progress', {
+                'progress': 18,
+                'phase': 'data_fetch',
+                'phase_label': '数据就绪',
+                'current_date': f'{start_date.date()} ~ {end_date.date()}'
+            })
+            await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': '数据获取阶段：数据已就绪，进入策略初始化'})
             total_bars = len(df)
             perf_data_fetch_ms = int((perf_counter() - stage_started_at) * 1000)
             await self._emit('system', {'msg': f"已获取 {total_bars} 条K线数据，正在初始化策略..."})

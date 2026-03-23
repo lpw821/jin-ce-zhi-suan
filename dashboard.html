@@ -913,7 +913,7 @@
                 <div id="kline-modal-loading" class="hidden absolute inset-0 z-20 bg-slate-950/80 flex items-center justify-center">
                     <div class="flex items-center gap-2 text-slate-200 text-sm">
                         <i class="fa-solid fa-spinner fa-spin text-cyan-300"></i>
-                        <span id="kline-modal-loading-text">K线加载中...</span>
+                        <span id="kline-modal-loading-text">K线加载中...理财有风险，投资需谨慎</span>
                     </div>
                 </div>
             </div>
@@ -1366,7 +1366,6 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 logMessage('SYSTEM', 'WebSocket 连接成功', 'system');
                 DIAG_STATE.wsConnected = true;
                 updateDebugPanel();
-                fetchGlobalStrategies();
                 loadStrategyManager();
                 syncStatus();
                 wsHeartbeatTimer = setInterval(() => {
@@ -1404,7 +1403,6 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             ws.onerror = () => {};
         }
         connectWebSocket();
-        syncStatus();
 
         function handleEvent(payload) {
             const { type, data } = payload;
@@ -2073,14 +2071,14 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 fields: [
                     { path: 'data_provider.source', label: '主数据源', type: 'select', options: [{ value: 'default', label: 'default' }, { value: 'akshare', label: 'akshare' }, { value: 'tushare', label: 'tushare' }] },
                     { path: 'data_provider.enable_fallback', label: '启用数据回退', type: 'boolean' },
-                    { path: 'data_provider.tushare_token', label: 'Tushare令牌', type: 'text' },
-                    { path: 'data_provider.default_api_key', label: '默认数据服务密钥', type: 'text' },
+                    { path: 'data_provider.tushare_token', label: 'Tushare令牌', type: 'password', secret: true },
+                    { path: 'data_provider.default_api_key', label: '默认数据服务密钥', type: 'password', secret: true },
                     { path: 'data_provider.default_api_url', label: '默认数据服务地址', type: 'text' },
                     { path: 'data_provider.llm_api_url', label: '智能服务地址（OpenAI兼容）', type: 'text' },
-                    { path: 'data_provider.llm_api_key', label: '智能服务访问密钥', type: 'text' },
+                    { path: 'data_provider.llm_api_key', label: '智能服务访问密钥', type: 'password', secret: true },
                     { path: 'data_provider.llm_model', label: '智能模型名称', type: 'text' },
                     { path: 'data_provider.strategy_llm_api_url', label: '新增策略智能服务地址', type: 'text' },
-                    { path: 'data_provider.strategy_llm_api_key', label: '新增策略智能服务密钥', type: 'text' },
+                    { path: 'data_provider.strategy_llm_api_key', label: '新增策略智能服务密钥', type: 'password', secret: true },
                     { path: 'data_provider.strategy_llm_model', label: '新增策略智能模型名称', type: 'text' },
                     { path: 'data_provider.strategy_llm_timeout_sec', label: '新增策略智能超时秒数', type: 'number', min: 30, max: 300, step: 1, slider: true }
                 ]
@@ -2427,7 +2425,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     }
                 } else {
                     const input = document.createElement('input');
-                    input.type = field.type === 'number' ? 'number' : 'text';
+                    input.type = field.type === 'number' ? 'number' : (field.type === 'password' ? 'password' : 'text');
                     input.min = field.min !== undefined ? String(field.min) : undefined;
                     input.max = field.max !== undefined ? String(field.max) : undefined;
                     input.step = field.type === 'number' ? String(field.step ?? 'any') : undefined;
@@ -2435,6 +2433,11 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     input.dataset.path = field.path;
                     input.dataset.kind = 'value';
                     input.dataset.valueType = field.type === 'number' ? 'number' : 'string';
+                    if (field.type === 'password' || field.secret) {
+                        input.dataset.secret = '1';
+                        input.dataset.secretMask = '********';
+                        input.autocomplete = 'new-password';
+                    }
                     input.className = 'w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-purple-500';
                     line.appendChild(input);
                     if (field.unit) {
@@ -2549,6 +2552,13 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                         const num = Number(el.value);
                         setByPath(out, path, Number.isFinite(num) ? num : 0);
                     } else {
+                        if (el.dataset.secret === '1') {
+                            const text = String(el.value || '');
+                            const mask = String(el.dataset.secretMask || '********');
+                            if (text === mask) return;
+                            setByPath(out, path, text);
+                            return;
+                        }
                         setByPath(out, path, String(el.value || ''));
                     }
                 } else if (kind === 'lines') {
@@ -2575,7 +2585,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         async function loadConfigCenter() {
             const status = document.getElementById('config-save-status');
             try {
-                if (status) status.innerText = '加载中...';
+                if (status) status.innerText = '加载中...理财有风险，投资需谨慎';
                 const res = await fetch('/api/config');
                 const data = await res.json();
                 if (data.status !== 'success') throw new Error(data.msg || '读取配置失败');
@@ -2677,7 +2687,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         async function loadStrategyManager() {
             const status = document.getElementById('strategy-manager-status');
             try {
-                if (status) status.innerText = '加载中...';
+                if (status) status.innerText = '加载中...理财有风险，投资需谨慎';
                 const res = await fetch('/api/strategy_manager/list');
                 const data = await res.json();
                 if (data.status !== 'success') throw new Error(data.msg || '读取失败');
@@ -3457,6 +3467,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             }
             const periodText = buildStrategyPeriodText(picked);
             logMessage('回测', `开始回测 ${code} (${dates.start}~${dates.end})，资金 ${capital.toLocaleString()}，策略周期：${periodText}`, 'warning');
+            logMessage('工部', `数据获取阶段：准备加载 ${code} ${dates.start}~${dates.end} 历史K线`, 'system');
             BT_STATE.progress = 0;
             BT_STATE.totalTrades = 0;
             BT_STATE.approvedSignals = 0;
@@ -3576,7 +3587,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             imgEl.classList.add('hidden');
         }
 
-        async function setKlineModalLoading(show, text = 'K线加载中...') {
+        async function setKlineModalLoading(show, text = 'K线加载中...理财有风险，投资需谨慎') {
             const box = document.getElementById('kline-modal-loading');
             const label = document.getElementById('kline-modal-loading-text');
             if (label) label.innerText = text;
@@ -3641,7 +3652,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (subtitle) subtitle.innerText = `${stock} · 区间 ${start} ~ ${end} · 按回测进度动态绘制${progressDate ? `（${progressDate}）` : ''}`;
             const q = `stock=${encodeURIComponent(stock)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&_t=${Date.now()}`;
             const run = async () => {
-                await setKlineModalLoading(true, 'K线加载中...');
+                await setKlineModalLoading(true, 'K线加载中...理财有风险，投资需谨慎');
                 try {
                     const key = getKlineCtxKey(currentBacktestChartCtx);
                     if (key && key === klinePreloadKey && klinePreloadPayload && !force) {
@@ -3714,7 +3725,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 return;
             }
             klineModalOpened = true;
-            setKlineModalLoading(true, 'K线加载中...');
+            setKlineModalLoading(true, 'K线加载中...理财有风险，投资需谨慎');
             const modal = document.getElementById('kline-modal');
             const title = document.getElementById('kline-modal-title');
             const container = document.getElementById('kline-modal-chart');
@@ -3830,6 +3841,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         
         function updateBacktestProgress(data) {
             const { progress, current_date } = data;
+            const phase = String(data.phase || '');
+            const phaseLabel = String(data.phase_label || '');
+            const isDataFetch = phase === 'data_fetch';
             const klineBtn = document.getElementById('kline-open-btn');
             if (klineBtn) klineBtn.classList.remove('hidden');
             if (!currentBacktestChartCtx) {
@@ -3840,15 +3854,27 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const bar = document.getElementById('backtest-progress-bar');
             const txt = document.getElementById('backtest-status-text');
             const dt = document.getElementById('backtest-date-display');
-            if (bar) bar.style.width = `${Math.max(0, Math.min(100, Number(progress || 0)))}%`;
-            if (txt) txt.innerText = `回测推进中 ${progress}%`;
-            if (dt) dt.innerText = current_date || '--';
             const p = Number(progress || 0);
-            if (p >= BT_STATE.progress + 10 || p === 100) {
-                BT_STATE.progress = p;
-                logMessage('回测', `进度 ${p}% · 当前时间 ${current_date || '--'} · 交易 ${BT_STATE.totalTrades}`, 'warning');
+            const prevProgress = Number(BT_STATE.progress || 0);
+            const nextProgress = Math.max(BT_STATE.progress, Math.max(0, Math.min(100, p)));
+            BT_STATE.progress = nextProgress;
+            if (bar) bar.style.width = `${nextProgress}%`;
+            if (txt) {
+                if (isDataFetch) {
+                    txt.innerText = `历史数据准备中 ${nextProgress}%${phaseLabel ? ` · ${phaseLabel}` : ''}`;
+                } else {
+                    txt.innerText = `回测推进中 ${nextProgress}%`;
+                }
             }
-            if (p > 0 && p < 100) {
+            if (dt) dt.innerText = current_date || '--';
+            if (isDataFetch) {
+                logMessage('工部', `数据准备 ${nextProgress}%${phaseLabel ? ` · ${phaseLabel}` : ''} · 区间 ${current_date || '--'}`, 'system');
+                return;
+            }
+            if (nextProgress >= prevProgress + 10 || nextProgress === 100) {
+                logMessage('回测', `进度 ${nextProgress}% · 当前时间 ${current_date || '--'} · 交易 ${BT_STATE.totalTrades}`, 'warning');
+            }
+            if (nextProgress > 0 && nextProgress < 100) {
                 const heat = Math.min(100, Math.max(0, BT_STATE.approvedSignals - BT_STATE.rejectedSignals + 50));
                 const temp = document.getElementById('rites-market-temp');
                 if (temp) temp.innerText = `🔥 ${Math.round(heat)}（回测）`;
@@ -4265,7 +4291,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         document.getElementById('bt-start-date')?.addEventListener('change', persistConsoleState);
         document.getElementById('bt-end-date')?.addEventListener('change', persistConsoleState);
         document.getElementById('bt-capital-input')?.addEventListener('input', persistConsoleState);
-        fetchGlobalStrategies();
+        setTimeout(() => {
+            if (!strategyCatalog.length) fetchGlobalStrategies();
+        }, 800);
         renderLiveStatus();
         updateConfidenceScore();
         updateRevenueCashRatioBar();

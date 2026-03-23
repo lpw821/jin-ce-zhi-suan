@@ -25,6 +25,22 @@ def custom_store_path():
     return os.path.join(_data_dir(), "custom_strategies.json")
 
 
+def custom_private_store_path():
+    override = str(os.environ.get("CUSTOM_STRATEGIES_PRIVATE_PATH", "") or "").strip()
+    if override:
+        return override
+    return os.path.join(_data_dir(), "custom_strategies.private.json")
+
+
+def _resolve_custom_store_path(for_write=False):
+    private_path = custom_private_store_path()
+    if os.path.exists(private_path):
+        return private_path
+    if for_write and str(os.environ.get("CUSTOM_STRATEGIES_WRITE_PRIVATE", "")).strip() == "1":
+        return private_path
+    return custom_store_path()
+
+
 def state_store_path():
     return os.path.join(_data_dir(), "strategy_state.json")
 
@@ -94,8 +110,9 @@ def normalize_kline_type(value):
 
 def load_custom_strategies():
     ensure_strategy_store()
+    store_path = _resolve_custom_store_path(for_write=False)
     try:
-        with open(custom_store_path(), "r", encoding="utf-8") as f:
+        with open(store_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
         rows = payload.get("strategies", [])
         return [r for r in rows if isinstance(r, dict)]
@@ -106,7 +123,11 @@ def load_custom_strategies():
 def save_custom_strategies(rows):
     ensure_strategy_store()
     safe_rows = [r for r in rows if isinstance(r, dict)]
-    with open(custom_store_path(), "w", encoding="utf-8") as f:
+    store_path = _resolve_custom_store_path(for_write=True)
+    folder = os.path.dirname(store_path)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    with open(store_path, "w", encoding="utf-8") as f:
         json.dump({"strategies": safe_rows}, f, ensure_ascii=False, indent=2)
 
 

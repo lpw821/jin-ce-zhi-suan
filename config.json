@@ -8,14 +8,14 @@
   "data_provider": {
     "source": "default",
     "enable_fallback": false,
-    "tushare_token": "4ba065ecb8eebdebc93dffaef6bc051eeb3a98b46eb7d94fd697282f",
-    "default_api_key": "abc123",
-    "default_api_url": "https://thru-her-involves-brick.trycloudflare.com",
-    "llm_api_url": "http://newapi.200m.997555.xyz",
-    "llm_api_key": "sk-iYutsmarHYAYNFieaEZ38VIikvU4q0KuEeGspoNR6f85IcOj",
-    "llm_model": "claude-opus-4-6",
+    "tushare_token": "",
+    "default_api_key": "",
+    "default_api_url": "",
+    "llm_api_url": "https://api.openai.com/v1",
+    "llm_api_key": "",
+    "llm_model": "gpt-4o-mini",
     "strategy_llm_api_url": "https://api.siliconflow.cn/v1",
-    "strategy_llm_api_key": "sk-dngogusiilqugivqgcnvdkimckoviiwhhfinuwrjgjtlzmli",
+    "strategy_llm_api_key": "",
     "strategy_llm_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     "strategy_llm_timeout_sec": 240
   },
@@ -24,15 +24,7 @@
   ],
   "strategies": {
     "active_ids": [
-      "01",
-      "02",
-      "03",
-      "04",
-      "05",
-      "06",
-      "07",
-      "08",
-      "09"
+      "00"
     ]
   },
   "risk_control": {

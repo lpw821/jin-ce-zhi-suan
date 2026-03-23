@@ -388,7 +388,11 @@
                 const pnlQuality = Number((dim.pnl_quality || {}).score || 0);
                 const practicality = Number((dim.practicality || {}).score || 0);
                 const forceCloseCount = Number(r.force_close_count || 0);
+                const tradeCount = Number(r.trade_count || 0);
                 const notes = Array.isArray(r.report_notes) ? r.report_notes : [];
+                const noTradeHint = tradeCount === 0
+                    ? '<div class="text-amber-300 mt-1">本次无成交，可能未触发信号、未纳入本次回测策略或下单数量不足100股。</div>'
+                    : '';
                 card.innerHTML = `
                     <div class="font-bold text-white mb-2">策略 ${sid} · ${sname}</div>
                     <div class="text-yellow-300 mb-2">评分卡：${Number(sc.total_score || 0).toFixed(1)} / 100 · ${sc.grade || '--'}（${sc.conclusion || '--'}）</div>
@@ -403,13 +407,14 @@
                     <div class="text-slate-300">总收益：${(Number(r.total_return || 0)*100).toFixed(2)}%</div>
                     <div class="text-slate-300">年化收益：${(Number(r.annual_return || 0)*100).toFixed(2)}%</div>
                     <div class="text-slate-300">最大回撤：${(Number(r.max_drawdown || 0)*100).toFixed(2)}%</div>
-                    <div class="text-slate-300">总交易次数：${r.trade_count ?? 0}</div>
+                    <div class="text-slate-300">总交易次数：${tradeCount}</div>
                     <div class="text-slate-300">盈利次数：${r.win_num ?? 0} | 亏损次数：${r.loss_num ?? 0}</div>
                     <div class="text-slate-300">胜率：${(Number(r.win_rate || 0)*100).toFixed(2)}%</div>
                     <div class="text-slate-300">平均盈利：${Number(r.avg_win || 0).toFixed(2)} | 平均亏损：${Number(r.avg_loss || 0).toFixed(2)}</div>
                     <div class="text-slate-300">盈亏比：${Number(r.profit_ratio || 0).toFixed(2)}</div>
                     <div class="text-slate-300">兜底强平次数：${forceCloseCount}</div>
                     ${notes.length ? `<div class="text-amber-300">说明：${notes.join('；')}</div>` : ''}
+                    ${noTradeHint}
                     <div class="text-slate-300 mt-2">收益能力：${profitability.toFixed(1)} / 30</div>
                     <div class="text-slate-300">风险控制：${riskControl.toFixed(1)} / 35</div>
                     <div class="text-slate-300">盈亏质量：${pnlQuality.toFixed(1)} / 20</div>
