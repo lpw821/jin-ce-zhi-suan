@@ -562,14 +562,23 @@ class BacktestCabinet:
                 drawdown_limited = await self._enforce_drawdown_limit(kline)
                 if drawdown_limited:
                     continue
-                strategy_context = {
-                    sid: {
-                        "current_cash": float(self.strategy_revenues[sid].cash),
-                        "last_price": float((strategy_kline_map.get(sid, kline) or {}).get("close", 0.0))
+                strategy_context = {}
+                for sid in runnable_strategy_ids:
+                    account = self.strategy_revenues.get(sid)
+                    if account is None:
+                        continue
+                    strategy_bar = strategy_kline_map.get(sid, kline) or kline
+                    last_price = float(strategy_bar.get("close", 0.0) or 0.0)
+                    holdings_value = self.state_affairs.update_strategy_holdings_value(
+                        sid, {self.stock_code: last_price}
+                    )
+                    current_cash = float(account.cash)
+                    strategy_context[sid] = {
+                        "current_cash": current_cash,
+                        "available_cash": current_cash,
+                        "total_value": float(current_cash + holdings_value),
+                        "last_price": last_price
                     }
-                    for sid in runnable_strategy_ids
-                    if sid in self.strategy_revenues
-                }
                 signals = self.secretariat.generate_signals(
                     kline,
                     runnable_strategy_ids=runnable_strategy_ids,

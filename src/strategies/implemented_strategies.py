@@ -17,6 +17,10 @@ class BaseImplementedStrategy(BaseStrategy):
         self.entry_price = {} # Code -> Entry Price
         self.highest_high = {} # Code -> Highest High since entry
         self.trailing_stop_level = {} # Code -> Trailing Stop Price
+        self.current_cash = 0.0
+        self.available_cash = 0.0
+        self.total_value = 0.0
+        self.last_price = 0.0
 
     def update_holding_time(self, code):
         if code in self.positions and self.positions[code] > 0:
@@ -54,7 +58,11 @@ class BaseImplementedStrategy(BaseStrategy):
         fixed_qty = int(float(self._cfg("order_qty", 1000)))
         if mode != "cash_pct":
             return max(0, fixed_qty)
-        cash = float(getattr(self, "current_cash", 0.0) or 0.0)
+        cash = float(
+            getattr(self, "current_cash", None)
+            if getattr(self, "current_cash", None) is not None
+            else getattr(self, "available_cash", getattr(self, "cash", 0.0))
+        )
         pct = float(self._cfg("order_cash_pct", 0.1))
         price = float(getattr(self, "last_price", 0.0) or 0.0)
         if pct > 1:
@@ -70,6 +78,12 @@ class BaseImplementedStrategy(BaseStrategy):
     def set_backtest_context(self, **kwargs):
         for key, value in kwargs.items():
             setattr(self, key, value)
+        if "current_cash" in kwargs and "available_cash" not in kwargs:
+            self.available_cash = kwargs.get("current_cash")
+        if "available_cash" in kwargs and "current_cash" not in kwargs:
+            self.current_cash = kwargs.get("available_cash")
+        if "total_value" not in kwargs:
+            self.total_value = float(self.current_cash or self.available_cash or 0.0)
 
 class Strategy00(BaseImplementedStrategy):
     def __init__(self):

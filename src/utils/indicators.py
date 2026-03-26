@@ -116,6 +116,16 @@ class Indicators:
         return tr.rolling(window=window).mean()
 
     @staticmethod
+    def HHV(series, window=14):
+        s = Indicators._to_numeric_series(series, 'high')
+        return s.rolling(window=window).max()
+
+    @staticmethod
+    def LLV(series, window=14):
+        s = Indicators._to_numeric_series(series, 'low')
+        return s.rolling(window=window).min()
+
+    @staticmethod
     def BollingerBands(close, window=20, num_std=2):
         ma = close.rolling(window=window).mean()
         std = close.rolling(window=window).std()
@@ -158,6 +168,16 @@ class Indicators:
     def atr(high, low=None, close=None, window=14, period=None, timeperiod=None, **kwargs):
         w = period if period is not None else (timeperiod if timeperiod is not None else window)
         return Indicators.ATR(high, low, close, window=int(w))
+
+    @staticmethod
+    def hhv(series, window=14, period=None, timeperiod=None, **kwargs):
+        w = period if period is not None else (timeperiod if timeperiod is not None else window)
+        return Indicators.HHV(series, window=int(w))
+
+    @staticmethod
+    def llv(series, window=14, period=None, timeperiod=None, **kwargs):
+        w = period if period is not None else (timeperiod if timeperiod is not None else window)
+        return Indicators.LLV(series, window=int(w))
 
     @staticmethod
     def bollinger_bands(close, window=20, num_std=2):
