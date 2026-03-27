@@ -5,10 +5,12 @@ param(
     [string]$PrivateBranch = "private-main",
     [string]$PublicRepoUrl = "https://github.com/ScottZt/jin-ce-zhi-suan.git",
     [string]$PrivateRepoUrl = "https://gitee.com/SeniorAgentTeam/jin-ce-zhi-suan.git",
-    [string]$PublicCommitMessage = "feat: update public code",
+    [string]$PublicCommitMessage = "",
     [string]$PrivateCommitMessage = "chore: update private config",
+    [string]$PublicSourceBranch = "",
     [switch]$UseLocalCommits,
     [switch]$SkipPublicPush,
+    [switch]$SkipPrivatePush,
     [switch]$StrictPublicPush,
     [switch]$DryRun
 )
@@ -76,9 +78,60 @@ function Ensure-LocalBranch {
     }
 }
 
+function Ensure-BranchExists {
+    param([string]$BranchName)
+    $verify = Invoke-Git -Args @("rev-parse", "--verify", $BranchName) -AllowFailure -ReadOnly
+    if ($verify.ExitCode -ne 0) {
+        throw "本地分支不存在：$BranchName"
+    }
+}
+
+function Get-CommitSubject {
+    param([string]$Ref)
+    $subjectResult = Invoke-Git -Args @("log", "-1", "--pretty=%s", $Ref) -AllowFailure -ReadOnly
+    if ($subjectResult.ExitCode -ne 0 -or @($subjectResult.Output).Count -eq 0) {
+        return ""
+    }
+    return "$($subjectResult.Output[0])".Trim()
+}
+
+function Sanitize-CommitMessage {
+    param([string]$Message)
+    $sanitized = "$Message"
+    $replaceRules = @(
+        @{ Pattern = "(?i)\b(api[\s\-_]*key|access[\s\-_]*key|secret|token|password|passwd|pwd)\b"; Replacement = "[REDACTED]" },
+        @{ Pattern = "(?i)\b(private|internal|confidential|credential|credentials)\b"; Replacement = "[REDACTED]" },
+        @{ Pattern = "(?i)(密钥|秘钥|口令|密码|令牌|凭证|私有|内部|内网)"; Replacement = "[REDACTED]" }
+    )
+    foreach ($rule in $replaceRules) {
+        $sanitized = [regex]::Replace($sanitized, $rule.Pattern, $rule.Replacement)
+    }
+    $sanitized = [regex]::Replace($sanitized, "\s+", " ").Trim()
+    if ([string]::IsNullOrWhiteSpace($sanitized)) {
+        return "chore: sync public updates"
+    }
+    return $sanitized
+}
+
 function Has-WorkingChanges {
     $status = Invoke-Git -Args @("status", "--porcelain") -ReadOnly
     return ($status.Output | Measure-Object).Count -gt 0
+}
+
+function Get-AheadCount {
+    param(
+        [string]$LocalRef,
+        [string]$RemoteRef
+    )
+    $result = Invoke-Git -Args @("rev-list", "--count", "$RemoteRef..$LocalRef") -AllowFailure -ReadOnly
+    if ($result.ExitCode -ne 0 -or @($result.Output).Count -eq 0) {
+        return -1
+    }
+    $parsed = 0
+    if (-not [int]::TryParse("$($result.Output[0])".Trim(), [ref]$parsed)) {
+        return -1
+    }
+    return $parsed
 }
 
 function Find-StashRefByMessage {
@@ -111,12 +164,26 @@ function Resolve-RepoRoot {
 $repoRoot = Resolve-RepoRoot
 Set-Location $repoRoot
 $startBranch = (Invoke-Git -Args @("rev-parse", "--abbrev-ref", "HEAD") -ReadOnly).Output[0].Trim()
+$effectivePublicSourceBranch = $PublicSourceBranch
+if ([string]::IsNullOrWhiteSpace($effectivePublicSourceBranch)) {
+    $effectivePublicSourceBranch = $startBranch
+}
+$effectivePublicCommitMessage = $PublicCommitMessage
+if ([string]::IsNullOrWhiteSpace($effectivePublicCommitMessage)) {
+    $sourceSubject = Get-CommitSubject -Ref $effectivePublicSourceBranch
+    $effectivePublicCommitMessage = Sanitize-CommitMessage -Message $sourceSubject
+} else {
+    $effectivePublicCommitMessage = Sanitize-CommitMessage -Message $effectivePublicCommitMessage
+}
 $privateStashCreated = $false
 $entryStashCreated = $false
 $entryStashTag = "dual-repo-entry-temp-" + [DateTime]::Now.ToString("yyyyMMddHHmmssfff")
 $publicPushFailed = $false
 
 try {
+    if ($SkipPublicPush -and $SkipPrivatePush) {
+        throw "参数冲突：-SkipPublicPush 与 -SkipPrivatePush 不能同时使用。"
+    }
     $publicDenyList = @(
         "config.private.json",
         "data/strategies/custom_strategies.private.json",
@@ -130,6 +197,7 @@ try {
     Ensure-Remote -Name $PublicRemote -Url $PublicRepoUrl
     Ensure-Remote -Name $PrivateRemote -Url $PrivateRepoUrl
     Ensure-LocalBranch -BranchName $PrivateBranch -FromBranch $PublicBranch
+    Ensure-BranchExists -BranchName $effectivePublicSourceBranch
 
     $entryBefore = @((Invoke-Git -Args @("stash", "list") -ReadOnly).Output).Count
     Invoke-Git -Args @("stash", "push", "--include-untracked", "-m", $entryStashTag) -AllowFailure | Out-Null
@@ -137,18 +205,36 @@ try {
     $entryStashCreated = $entryAfter -gt $entryBefore
 
     Invoke-Git -Args @("checkout", $PublicBranch) | Out-Null
-    Invoke-Git -Args @("add", "-A") | Out-Null
-    foreach ($path in $publicDenyList) {
-        Invoke-Git -Args @("rm", "--cached", "--ignore-unmatch", $path) -AllowFailure | Out-Null
+    if ($effectivePublicSourceBranch -ne $PublicBranch) {
+        Write-Host "提示：公共推送源分支为 $effectivePublicSourceBranch，将先合并到 $PublicBranch。"
+        Invoke-Git -Args @("merge", $effectivePublicSourceBranch, "--no-edit") | Out-Null
     }
-    if (Has-WorkingChanges) {
-        Invoke-Git -Args @("commit", "-m", $PublicCommitMessage) | Out-Null
+    if ($UseLocalCommits) {
+        if (Has-WorkingChanges) {
+            throw "已启用 -UseLocalCommits：检测到未提交改动，请先手动提交后再执行脚本。"
+        }
     } else {
-        Write-Host "公共分支无可提交改动，跳过 commit。"
+        Invoke-Git -Args @("add", "-A") | Out-Null
+        foreach ($path in $publicDenyList) {
+            Invoke-Git -Args @("rm", "--cached", "--ignore-unmatch", $path) -AllowFailure | Out-Null
+        }
+        if (Has-WorkingChanges) {
+            Invoke-Git -Args @("commit", "-m", $effectivePublicCommitMessage) | Out-Null
+        } else {
+            Write-Host "公共分支无可提交改动，跳过 commit。"
+        }
     }
     if ($SkipPublicPush) {
         Write-Host "已指定 SkipPublicPush，跳过 public push。"
     } else {
+        Invoke-Git -Args @("fetch", $PublicRemote, $PublicBranch) -AllowFailure | Out-Null
+        $publicRemoteRef = "$PublicRemote/$PublicBranch"
+        $aheadCount = Get-AheadCount -LocalRef $PublicBranch -RemoteRef $publicRemoteRef
+        if ($aheadCount -eq 0) {
+            Write-Host "提示：$PublicBranch 相对 $publicRemoteRef 没有新增提交，push 可能显示 up-to-date。"
+        } elseif ($aheadCount -gt 0) {
+            Write-Host "提示：检测到 $aheadCount 个待推送提交到 $publicRemoteRef。"
+        }
         $publicPushResult = Invoke-Git -Args @("push", $PublicRemote, $PublicBranch) -AllowFailure
         if ($publicPushResult.ExitCode -ne 0) {
             $publicPushFailed = $true
@@ -160,29 +246,33 @@ try {
         }
     }
 
-    $stashBeforeCount = @((Invoke-Git -Args @("stash", "list") -ReadOnly).Output).Count
-    Invoke-Git -Args @("stash", "push", "--include-untracked", "-m", "dual-repo-temp-private") -AllowFailure | Out-Null
-    $stashAfterCount = @((Invoke-Git -Args @("stash", "list") -ReadOnly).Output).Count
-    $privateStashCreated = $stashAfterCount -gt $stashBeforeCount
-
-    Invoke-Git -Args @("checkout", $PrivateBranch) | Out-Null
-    Invoke-Git -Args @("merge", $PublicBranch, "--no-edit") | Out-Null
-    if ($privateStashCreated) {
-        Invoke-Git -Args @("stash", "apply", "stash@{0}") | Out-Null
-        Invoke-Git -Args @("stash", "drop", "stash@{0}") | Out-Null
-        $privateStashCreated = $false
-    }
-    foreach ($path in $publicDenyList) {
-        if (Test-Path (Join-Path $repoRoot $path)) {
-            Invoke-Git -Args @("add", "-f", $path) -AllowFailure | Out-Null
-        }
-    }
-    if (Has-WorkingChanges) {
-        Invoke-Git -Args @("commit", "-m", $PrivateCommitMessage) | Out-Null
+    if ($SkipPrivatePush) {
+        Write-Host "已指定 SkipPrivatePush，跳过 private push。"
     } else {
-        Write-Host "私有分支无可提交改动，跳过 commit。"
+        $stashBeforeCount = @((Invoke-Git -Args @("stash", "list") -ReadOnly).Output).Count
+        Invoke-Git -Args @("stash", "push", "--include-untracked", "-m", "dual-repo-temp-private") -AllowFailure | Out-Null
+        $stashAfterCount = @((Invoke-Git -Args @("stash", "list") -ReadOnly).Output).Count
+        $privateStashCreated = $stashAfterCount -gt $stashBeforeCount
+
+        Invoke-Git -Args @("checkout", $PrivateBranch) | Out-Null
+        Invoke-Git -Args @("merge", $PublicBranch, "--no-edit") | Out-Null
+        if ($privateStashCreated) {
+            Invoke-Git -Args @("stash", "apply", "stash@{0}") | Out-Null
+            Invoke-Git -Args @("stash", "drop", "stash@{0}") | Out-Null
+            $privateStashCreated = $false
+        }
+        foreach ($path in $publicDenyList) {
+            if (Test-Path (Join-Path $repoRoot $path)) {
+                Invoke-Git -Args @("add", "-f", $path) -AllowFailure | Out-Null
+            }
+        }
+        if (Has-WorkingChanges) {
+            Invoke-Git -Args @("commit", "-m", $PrivateCommitMessage) | Out-Null
+        } else {
+            Write-Host "私有分支无可提交改动，跳过 commit。"
+        }
+        Invoke-Git -Args @("push", $PrivateRemote, $PrivateBranch) | Out-Null
     }
-    Invoke-Git -Args @("push", $PrivateRemote, $PrivateBranch) | Out-Null
     if ($publicPushFailed) {
         Write-Host "private push 已完成，但 public push 失败（见上方警告）。"
     } else {
