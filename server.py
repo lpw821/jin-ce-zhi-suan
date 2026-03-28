@@ -1,5 +1,6 @@
 
 import asyncio
+import argparse
 import json
 import os
 import importlib
@@ -128,6 +129,8 @@ config = ConfigLoader()
 intent_engine = StrategyIntentEngine()
 history_sync_service = HistoryDiffSyncService()
 history_sync_scheduler_task = None
+startup_server_host = None
+startup_server_port = None
 SECRET_CONFIG_PATHS = {
     "data_provider.tushare_token",
     "data_provider.default_api_key",
@@ -149,6 +152,47 @@ def _apply_log_level(cfg=None):
     logging.getLogger().setLevel(level)
     logger.setLevel(level)
     return level_name
+
+def _server_host(cfg=None):
+    c = cfg if cfg is not None else ConfigLoader.reload()
+    env_host = str(os.environ.get("SERVER_HOST", "") or "").strip()
+    if env_host:
+        return env_host
+    cfg_host = str(c.get("system.server_host", "0.0.0.0") or "").strip()
+    return cfg_host or "0.0.0.0"
+
+def _server_port(cfg=None):
+    c = cfg if cfg is not None else ConfigLoader.reload()
+    env_port = str(os.environ.get("SERVER_PORT", "") or "").strip()
+    raw_port = env_port if env_port else str(c.get("system.server_port", 8000) or "").strip()
+    try:
+        port = int(raw_port)
+        if 1 <= port <= 65535:
+            return port
+    except (TypeError, ValueError):
+        pass
+    logger.warning("Invalid server port '%s', fallback to 8000", raw_port)
+    return 8000
+
+def _resolve_server_bind(cfg=None, argv=None):
+    c = cfg if cfg is not None else ConfigLoader.reload()
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--host", type=str, default=None)
+    parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--prot", type=int, default=None)
+    args, _ = parser.parse_known_args(argv if argv is not None else sys.argv[1:])
+    host = _server_host(c)
+    port = _server_port(c)
+    cli_host = str(args.host or "").strip()
+    if cli_host:
+        host = cli_host
+    cli_port = args.prot if args.prot is not None else args.port
+    if cli_port is not None:
+        if 1 <= int(cli_port) <= 65535:
+            port = int(cli_port)
+        else:
+            logger.warning("Invalid cli port '%s', keep port=%s", cli_port, port)
+    return host, port
 
 def _default_target_code(cfg=None):
     c = cfg if cfg is not None else ConfigLoader.reload()
@@ -2522,7 +2566,7 @@ async def emit_event_to_ws(event_type, data):
 
 @app.on_event("startup")
 async def startup_event():
-    global history_sync_scheduler_task
+    global history_sync_scheduler_task, startup_server_host, startup_server_port
     _apply_log_level()
     logger.info("Initializing Cabinet Server...")
     load_report_history()
@@ -2541,7 +2585,10 @@ async def startup_event():
     _startup_private_data_check(cfg)
     if bool(cfg.get("history_sync.scheduler_enabled", False)):
         history_sync_scheduler_task = asyncio.create_task(_history_sync_scheduler_loop())
-    logger.info("Server Started. Access dashboard at http://localhost:8000")
+    server_host = startup_server_host if startup_server_host else _server_host(cfg)
+    server_port = startup_server_port if startup_server_port else _server_port(cfg)
+    access_host = "localhost" if server_host in {"0.0.0.0", "::"} else server_host
+    logger.info(f"Server Started. Access dashboard at http://{access_host}:{server_port}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -2553,10 +2600,14 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
+    cfg = ConfigLoader.reload()
+    server_host, server_port = _resolve_server_bind(cfg)
+    startup_server_host = server_host
+    startup_server_port = server_port
     uvicorn.run(
         app,
-        host="0.0.0.0",
-        port=8000,
+        host=server_host,
+        port=server_port,
         ws_ping_interval=20.0,
         ws_ping_timeout=180.0,
         ws_max_queue=1024

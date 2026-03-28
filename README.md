@@ -197,6 +197,22 @@ python run_live.py
 python server.py
 ```
 
+命令行临时指定端口：
+
+```bash
+python server.py --prot 8001
+```
+
+可自定义启动地址与端口（优先级：环境变量 > `config.json`）：
+
+```bash
+$env:SERVER_HOST="0.0.0.0"
+$env:SERVER_PORT="9000"
+python server.py
+```
+
+也可在 `config.json` 的 `system.server_host`、`system.server_port` 中配置。
+
 前台配置中心可以进行具体的配置
 
 ![](C:\Users\scott\AppData\Roaming\marktext\images\2026-03-23-22-16-35-image.png)

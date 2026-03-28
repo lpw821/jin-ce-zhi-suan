@@ -4,6 +4,8 @@
     "enable_live": false,
     "initial_capital": 1000000,
     "log_level": "INFO",
+    "server_host": "0.0.0.0",
+    "server_port": 8000,
     "private_config_path": "D:/04.量化/private-data/config.private.json",
     "private_strategy_path": "D:/04.量化/private-data/strategies/custom_strategies.private.json"
   },
