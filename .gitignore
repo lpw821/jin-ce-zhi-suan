@@ -8,10 +8,9 @@ __pycache__/
 .mypy_cache/
 .trae/
 config.private.json
-
+reports/
 .env
 .env.*
-
 data/reports/
 data/history/
 backtest_report.html

@@ -7,14 +7,57 @@
     "server_host": "0.0.0.0",
     "server_port": 8000,
     "private_config_path": "D:/04.量化/private-data/config.private.json",
-    "private_strategy_path": "D:/04.量化/private-data/strategies/custom_strategies.private.json"
+    "private_strategy_path": "D:/04.量化/private-data/strategies/custom_strategies.private.json",
+    "private_override_paths": [
+      "data_provider.tushare_token",
+      "data_provider.default_api_key",
+      "data_provider.llm_api_key",
+      "data_provider.strategy_llm_api_key",
+      "data_provider.api_key",
+      "data_provider.mysql_password",
+      "data_provider.postgres_password",
+      "data_provider.default_api_url"
+    ]
   },
   "data_provider": {
-    "source": "default",
+    "source": "mysql",
     "enable_fallback": false,
-    "tushare_token": "",
-    "default_api_key": "",
-    "default_api_url": "https://gamecube-uri-arranged-nutrition.trycloudflare.com",
+    "tushare_token": "4ba065ecb8eebdebc93dffaef6bc051eeb3a98b46eb7d94fd697282f",
+    "default_api_key": "abc123",
+    "default_api_url": "",
+    "mysql_host": "127.0.0.1",
+    "mysql_port": 3306,
+    "mysql_user": "root",
+    "mysql_password": "123456",
+    "mysql_database": "quantifydata",
+    "mysql_charset": "utf8mb4",
+    "mysql_pool_size": 6,
+    "mysql_pool_wait_timeout_sec": 10,
+    "mysql_query_page_size": 20000,
+    "mysql_table_1min": "dat_1mins",
+    "mysql_table_5min": "dat_5mins",
+    "mysql_table_10min": "dat_10mins",
+    "mysql_table_15min": "dat_15mins",
+    "mysql_table_30min": "dat_30mins",
+    "mysql_table_60min": "dat_60mins",
+    "mysql_table_day": "dat_day",
+    "postgres_host": "127.0.0.1",
+    "postgres_port": 5432,
+    "postgres_user": "",
+    "postgres_password": "",
+    "postgres_database": "",
+    "postgres_schema": "public",
+    "postgres_pool_size": 6,
+    "postgres_pool_wait_timeout_sec": 10,
+    "postgres_query_page_size": 20000,
+    "postgres_table_1min": "dat_1mins",
+    "postgres_table_5min": "dat_5mins",
+    "postgres_table_10min": "dat_10mins",
+    "postgres_table_15min": "dat_15mins",
+    "postgres_table_30min": "dat_30mins",
+    "postgres_table_60min": "dat_60mins",
+    "postgres_table_day": "dat_day",
+    "backtest_cache_db_source": "mysql",
     "llm_api_url": "https://api.openai.com/v1",
     "llm_api_key": "",
     "llm_model": "gpt-4o-mini",
@@ -23,7 +66,27 @@
     "strategy_llm_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     "strategy_llm_timeout_sec": 240,
     "api_key": "",
-    "adjustment_mode": "none"
+    "adjustment_mode": "hfq"
+  },
+  "history_sync": {
+    "scheduler_enabled": false,
+    "interval_minutes": 60,
+    "lookback_days": 10,
+    "max_codes": 10000,
+    "batch_size": 500,
+    "tables": [
+      "dat_1mins",
+      "dat_5mins",
+      "dat_10mins",
+      "dat_15mins",
+      "dat_30mins",
+      "dat_60mins",
+      "dat_days"
+    ],
+    "dry_run": false,
+    "on_duplicate": "ignore",
+    "write_mode": "direct_db",
+    "direct_db_source": "mysql"
   },
   "targets": [
     "301227.SZ"
@@ -73,7 +136,7 @@
     "enforce_defaults": true,
     "min_history_years": 5,
     "require_regime_coverage": true,
-    "lock_backtest_data_source": true,
+    "lock_backtest_data_source": false,
     "fixed_data_source": "default",
     "strategy_profile_mapping": [
       {
@@ -183,7 +246,7 @@
         }
       }
     },
-    "last_applied_profile": "cn_equity_intraday",
+    "last_applied_profile": "cn_equity_mid_long",
     "last_applied_market": "A股"
   },
   "live_monitoring": {

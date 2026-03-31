@@ -687,6 +687,8 @@
                     <option value="default">默认数据源</option>
                     <option value="tushare">Tushare</option>
                     <option value="akshare">AKShare</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="postgresql">PostgreSQL</option>
                 </select>
             </div>
         </div>
@@ -2356,11 +2358,44 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 title: '工部数据源',
                 subtitle: '主数据源与回退策略',
                 fields: [
-                    { path: 'data_provider.source', label: '主数据源', type: 'select', options: [{ value: 'default', label: 'default' }, { value: 'akshare', label: 'akshare' }, { value: 'tushare', label: 'tushare' }] },
+                    { path: 'data_provider.source', label: '主数据源', type: 'select', options: [{ value: 'default', label: 'default' }, { value: 'akshare', label: 'akshare' }, { value: 'tushare', label: 'tushare' }, { value: 'mysql', label: 'mysql' }, { value: 'postgresql', label: 'postgresql' }] },
                     { path: 'data_provider.enable_fallback', label: '启用数据回退', type: 'boolean' },
+                    { path: 'data_provider.backtest_cache_db_source', label: '回测缓存落库源', type: 'select', options: [{ value: '', label: '关闭' }, { value: 'mysql', label: 'mysql' }, { value: 'postgresql', label: 'postgresql' }] },
                     { path: 'data_provider.tushare_token', label: 'Tushare令牌', type: 'password', secret: true },
                     { path: 'data_provider.default_api_key', label: '默认数据服务密钥', type: 'password', secret: true },
                     { path: 'data_provider.default_api_url', label: '默认数据服务地址', type: 'text' },
+                    { path: 'data_provider.mysql_host', label: 'MySQL主机', type: 'text' },
+                    { path: 'data_provider.mysql_port', label: 'MySQL端口', type: 'number', min: 1, max: 65535, step: 1 },
+                    { path: 'data_provider.mysql_user', label: 'MySQL用户', type: 'text' },
+                    { path: 'data_provider.mysql_password', label: 'MySQL密码', type: 'password', secret: true },
+                    { path: 'data_provider.mysql_database', label: 'MySQL库名', type: 'text' },
+                    { path: 'data_provider.mysql_charset', label: 'MySQL字符集', type: 'text' },
+                    { path: 'data_provider.mysql_pool_size', label: 'MySQL连接池大小', type: 'number', min: 1, max: 64, step: 1 },
+                    { path: 'data_provider.mysql_pool_wait_timeout_sec', label: '连接池等待秒数', type: 'number', min: 1, max: 120, step: 1 },
+                    { path: 'data_provider.mysql_query_page_size', label: '分页批量条数', type: 'number', min: 1000, max: 200000, step: 1000 },
+                    { path: 'data_provider.mysql_table_1min', label: 'MySQL 1分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_5min', label: 'MySQL 5分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_10min', label: 'MySQL 10分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_15min', label: 'MySQL 15分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_30min', label: 'MySQL 30分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_60min', label: 'MySQL 60分钟表', type: 'text' },
+                    { path: 'data_provider.mysql_table_day', label: 'MySQL 日线表', type: 'text' },
+                    { path: 'data_provider.postgres_host', label: 'PostgreSQL主机', type: 'text' },
+                    { path: 'data_provider.postgres_port', label: 'PostgreSQL端口', type: 'number', min: 1, max: 65535, step: 1 },
+                    { path: 'data_provider.postgres_user', label: 'PostgreSQL用户', type: 'text' },
+                    { path: 'data_provider.postgres_password', label: 'PostgreSQL密码', type: 'password', secret: true },
+                    { path: 'data_provider.postgres_database', label: 'PostgreSQL库名', type: 'text' },
+                    { path: 'data_provider.postgres_schema', label: 'PostgreSQL Schema', type: 'text' },
+                    { path: 'data_provider.postgres_pool_size', label: 'PostgreSQL连接池大小', type: 'number', min: 1, max: 64, step: 1 },
+                    { path: 'data_provider.postgres_pool_wait_timeout_sec', label: 'PostgreSQL等待秒数', type: 'number', min: 1, max: 120, step: 1 },
+                    { path: 'data_provider.postgres_query_page_size', label: 'PostgreSQL分页条数', type: 'number', min: 1000, max: 200000, step: 1000 },
+                    { path: 'data_provider.postgres_table_1min', label: 'PostgreSQL 1分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_5min', label: 'PostgreSQL 5分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_10min', label: 'PostgreSQL 10分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_15min', label: 'PostgreSQL 15分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_30min', label: 'PostgreSQL 30分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_60min', label: 'PostgreSQL 60分钟表', type: 'text' },
+                    { path: 'data_provider.postgres_table_day', label: 'PostgreSQL 日线表', type: 'text' },
                     { path: 'data_provider.llm_api_url', label: '智能服务地址（OpenAI兼容）', type: 'text' },
                     { path: 'data_provider.llm_api_key', label: '智能服务访问密钥', type: 'password', secret: true },
                     { path: 'data_provider.llm_model', label: '智能模型名称', type: 'text' },
@@ -2368,6 +2403,18 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     { path: 'data_provider.strategy_llm_api_key', label: '新增策略智能服务密钥', type: 'password', secret: true },
                     { path: 'data_provider.strategy_llm_model', label: '新增策略智能模型名称', type: 'text' },
                     { path: 'data_provider.strategy_llm_timeout_sec', label: '新增策略智能超时秒数', type: 'number', min: 30, max: 300, step: 1, slider: true }
+                ]
+            },
+            {
+                title: '工部增量同步',
+                subtitle: '历史增量同步写入模式',
+                fields: [
+                    { path: 'history_sync.write_mode', label: '写入模式', type: 'select', options: [{ value: 'api', label: 'api（写default_api_url）' }, { value: 'direct_db', label: 'direct_db（直连数据库）' }] },
+                    { path: 'history_sync.direct_db_source', label: '直连数据库源', type: 'select', options: [{ value: 'mysql', label: 'mysql' }, { value: 'postgresql', label: 'postgresql' }] },
+                    { path: 'history_sync.lookback_days', label: '默认回看天数', type: 'number', min: 1, max: 3650, step: 1, slider: true },
+                    { path: 'history_sync.max_codes', label: '默认标的上限', type: 'number', min: 1, max: 50000, step: 1, slider: true },
+                    { path: 'history_sync.batch_size', label: '默认分批条数', type: 'number', min: 1, max: 5000, step: 1, slider: true },
+                    { path: 'history_sync.dry_run', label: '默认Dry Run', type: 'boolean' }
                 ]
             },
             {
@@ -3632,12 +3679,24 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             historySyncRunning = true;
             renderHistorySyncButtons();
             try {
+                const cfg = configDraft || {};
+                const writeMode = String(getByPath(cfg, 'history_sync.write_mode', 'api') || 'api');
+                const directDbSource = String(getByPath(cfg, 'history_sync.direct_db_source', 'mysql') || 'mysql');
+                const lookbackDays = Number(getByPath(cfg, 'history_sync.lookback_days', 10) || 10);
+                const maxCodes = Number(getByPath(cfg, 'history_sync.max_codes', 10000) || 10000);
+                const batchSize = Number(getByPath(cfg, 'history_sync.batch_size', 500) || 500);
+                const dryRun = Boolean(getByPath(cfg, 'history_sync.dry_run', false));
+                const tablesCfg = getByPath(cfg, 'history_sync.tables', ['dat_1mins', 'dat_5mins', 'dat_10mins', 'dat_15mins', 'dat_30mins', 'dat_60mins', 'dat_days']);
+                const tables = Array.isArray(tablesCfg) && tablesCfg.length ? tablesCfg : ['dat_1mins', 'dat_5mins', 'dat_10mins', 'dat_15mins', 'dat_30mins', 'dat_60mins', 'dat_days'];
                 const payload = {
-                    lookback_days: 10,
-                    max_codes: 200,
-                    batch_size: 500,
-                    dry_run: false,
+                    lookback_days: Math.max(1, Math.floor(lookbackDays)),
+                    max_codes: Math.max(1, Math.floor(maxCodes)),
+                    batch_size: Math.max(1, Math.floor(batchSize)),
+                    tables,
+                    dry_run: dryRun,
                     on_duplicate: 'ignore',
+                    write_mode: writeMode,
+                    direct_db_source: directDbSource,
                     async_run: false
                 };
                 const res = await fetch('/api/history_sync/run', {
@@ -3653,6 +3712,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const missing = Number(report.total_missing_rows || 0);
                 const written = Number(report.total_written_rows || 0);
                 logMessage('SYSTEM', `增量同步完成：缺失${missing}条，写入${written}条`, 'success');
+                if (data.record && data.record.run_id) {
+                    logMessage('SYSTEM', `同步记录已生成：${data.record.run_id}`, 'info');
+                }
             } catch (e) {
                 logMessage('SYSTEM', `增量同步失败: ${e}`, 'danger');
             } finally {
@@ -3664,16 +3726,29 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const nextOn = !historySyncSchedulerRunning;
             try {
                 if (nextOn) {
+                    const cfg = configDraft || {};
+                    const writeMode = String(getByPath(cfg, 'history_sync.write_mode', 'api') || 'api');
+                    const directDbSource = String(getByPath(cfg, 'history_sync.direct_db_source', 'mysql') || 'mysql');
+                    const lookbackDays = Number(getByPath(cfg, 'history_sync.lookback_days', 10) || 10);
+                    const maxCodes = Number(getByPath(cfg, 'history_sync.max_codes', 10000) || 10000);
+                    const batchSize = Number(getByPath(cfg, 'history_sync.batch_size', 500) || 500);
+                    const dryRun = Boolean(getByPath(cfg, 'history_sync.dry_run', false));
+                    const intervalMinutes = Number(getByPath(cfg, 'history_sync.interval_minutes', 60) || 60);
+                    const tablesCfg = getByPath(cfg, 'history_sync.tables', ['dat_1mins', 'dat_5mins', 'dat_10mins', 'dat_15mins', 'dat_30mins', 'dat_60mins', 'dat_days']);
+                    const tables = Array.isArray(tablesCfg) && tablesCfg.length ? tablesCfg : ['dat_1mins', 'dat_5mins', 'dat_10mins', 'dat_15mins', 'dat_30mins', 'dat_60mins', 'dat_days'];
                     const res = await fetch('/api/history_sync/scheduler/start', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            interval_minutes: 60,
-                            lookback_days: 10,
-                            max_codes: 200,
-                            batch_size: 500,
-                            dry_run: false,
-                            on_duplicate: 'ignore'
+                            interval_minutes: Math.max(1, Math.floor(intervalMinutes)),
+                            lookback_days: Math.max(1, Math.floor(lookbackDays)),
+                            max_codes: Math.max(1, Math.floor(maxCodes)),
+                            batch_size: Math.max(1, Math.floor(batchSize)),
+                            tables,
+                            dry_run: dryRun,
+                            on_duplicate: 'ignore',
+                            write_mode: writeMode,
+                            direct_db_source: directDbSource
                         })
                     });
                     const data = await res.json();

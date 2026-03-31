@@ -5,12 +5,13 @@ import os
 class ConfigLoader:
     _instance = None
     _config = {}
-    _private_override_paths = {
+    _default_private_override_paths = {
         "data_provider.tushare_token",
         "data_provider.default_api_key",
         "data_provider.llm_api_key",
         "data_provider.strategy_llm_api_key",
         "data_provider.api_key",
+        "data_provider.mysql_password",
     }
 
     def __new__(cls, config_path="config.json"):
@@ -32,7 +33,8 @@ class ConfigLoader:
         if private_config_path and (not os.path.isabs(private_config_path)):
             private_config_path = os.path.join(project_root, private_config_path)
         private_config = self._load_json_config(private_config_path, silent=True)
-        private_config = self._filter_private_override_config(private_config)
+        private_override_paths = self.resolve_private_override_paths(base_config)
+        private_config = self._filter_private_override_config(private_config, private_override_paths)
         self._config = self._deep_merge_dict(base_config, private_config)
 
     def _load_json_config(self, config_path, silent=False):
@@ -102,11 +104,36 @@ class ConfigLoader:
             cur = nxt
         cur[keys[-1]] = value
 
-    def _filter_private_override_config(self, payload):
+    @classmethod
+    def resolve_private_override_paths(cls, payload=None):
+        env_value = str(os.environ.get("CONFIG_PRIVATE_OVERRIDE_PATHS", "") or "").strip()
+        if env_value:
+            return {p.strip() for p in env_value.split(",") if p and p.strip()}
+        cfg_value = []
+        if isinstance(payload, dict):
+            cur = payload
+            ok = True
+            for key in "system.private_override_paths".split('.'):
+                if not isinstance(cur, dict) or key not in cur:
+                    ok = False
+                    break
+                cur = cur.get(key)
+            if ok:
+                cfg_value = cur
+        if isinstance(cfg_value, list):
+            normalized = {str(p or "").strip() for p in cfg_value}
+            normalized = {p for p in normalized if p}
+            if normalized:
+                return normalized
+        if isinstance(cfg_value, str) and cfg_value.strip():
+            return {p.strip() for p in cfg_value.split(",") if p and p.strip()}
+        return set(cls._default_private_override_paths)
+
+    def _filter_private_override_config(self, payload, paths):
         if not isinstance(payload, dict):
             return {}
         filtered = {}
-        for path in self._private_override_paths:
+        for path in paths:
             if self._path_exists(payload, path):
                 self._set_path_value(filtered, path, self._get_path_value(payload, path, ""))
         return filtered

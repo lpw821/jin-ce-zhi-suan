@@ -1,20 +1,21 @@
 # DataProvider 独立封装包说明
 
 ## 简介
-这是一个独立封装的中国A股市场数据获取模块，支持 **Tushare Pro** (推荐，需Token) 和 **Akshare** (开源免费) 两种数据源。
+这是一个独立封装的中国A股市场数据获取模块，支持 **Tushare Pro**、**Akshare** 和 **MySQL直连** 三种数据源。
 您可以直接将 `src/utils` 目录下的相关文件复制到您的其他项目中使用。
 
 ## 依赖库
 使用前请确保安装以下 Python 库：
 ```bash
-pip install pandas numpy tushare akshare requests
+pip install pandas numpy tushare akshare requests pymysql
 ```
 
 ## 核心文件
 1. `src/utils/data_factory.py`: 统一工厂入口
 2. `src/utils/tushare_provider.py`: Tushare 数据源实现
 3. `src/utils/akshare_provider.py`: Akshare 数据源实现
-4. `src/utils/data_provider.py`: 默认/基类实现
+4. `src/utils/mysql_provider.py`: MySQL 数据源实现
+5. `src/utils/data_provider.py`: 默认/基类实现
 
 ## 快速上手
 

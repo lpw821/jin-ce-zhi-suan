@@ -43,7 +43,9 @@ from src.utils.stock_manager import stock_manager
 from src.utils.data_provider import DataProvider
 from src.utils.tushare_provider import TushareProvider
 from src.utils.akshare_provider import AkshareProvider
-from src.utils.history_sync_service import HistoryDiffSyncService, TABLE_INTERVAL_MAP
+from src.utils.mysql_provider import MysqlProvider
+from src.utils.postgres_provider import PostgresProvider
+from src.utils.history_sync_service import HistoryDiffSyncService, TABLE_INTERVAL_MAP, DEFAULT_SYNC_TABLES
 from src.utils.backtest_baseline import apply_backtest_baseline
 
 import logging
@@ -131,13 +133,7 @@ history_sync_service = HistoryDiffSyncService()
 history_sync_scheduler_task = None
 startup_server_host = None
 startup_server_port = None
-SECRET_CONFIG_PATHS = {
-    "data_provider.tushare_token",
-    "data_provider.default_api_key",
-    "data_provider.llm_api_key",
-    "data_provider.strategy_llm_api_key",
-    "data_provider.api_key",
-}
+SECRET_CONFIG_PATHS = set(ConfigLoader._default_private_override_paths)
 SECRET_MASK = "********"
 
 def _system_mode(cfg=None):
@@ -206,6 +202,15 @@ def _default_target_code(cfg=None):
 
 def _project_root():
     return os.path.dirname(os.path.abspath(__file__))
+
+def _secret_config_paths(payload=None):
+    try:
+        if isinstance(payload, dict):
+            return ConfigLoader.resolve_private_override_paths(payload)
+        cfg = ConfigLoader.reload()
+        return ConfigLoader.resolve_private_override_paths(cfg.to_dict())
+    except Exception:
+        return set(SECRET_CONFIG_PATHS)
 
 def _private_config_path():
     override = str(os.environ.get("CONFIG_PRIVATE_PATH", "") or "").strip()
@@ -349,7 +354,7 @@ def _mask_secret_value(value):
 
 def _mask_secret_config(payload):
     masked = json.loads(json.dumps(payload, ensure_ascii=False))
-    for path in SECRET_CONFIG_PATHS:
+    for path in _secret_config_paths(masked):
         val = _get_path_value(masked, path, "")
         if _path_exists(masked, path):
             _set_path_value(masked, path, _mask_secret_value(val))
@@ -369,9 +374,10 @@ def _save_split_config(incoming):
     incoming_dict = incoming if isinstance(incoming, dict) else {}
     current_cfg = ConfigLoader.reload().to_dict()
     merged_cfg = _deep_merge_dict(current_cfg, incoming_dict)
+    secret_paths = _secret_config_paths(merged_cfg)
 
     secret_updates = {}
-    for path in SECRET_CONFIG_PATHS:
+    for path in secret_paths:
         if not _path_exists(incoming_dict, path):
             continue
         val = _get_path_value(incoming_dict, path, "")
@@ -380,7 +386,7 @@ def _save_split_config(incoming):
         secret_updates[path] = val
 
     public_cfg = json.loads(json.dumps(merged_cfg, ensure_ascii=False))
-    for path in SECRET_CONFIG_PATHS:
+    for path in secret_paths:
         _set_path_value(public_cfg, path, "")
 
     cfg = ConfigLoader.reload()
@@ -739,20 +745,24 @@ class HistorySyncRunRequest(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     lookback_days: int = 10
-    max_codes: int = 200
+    max_codes: int = 10000
     batch_size: int = 500
     dry_run: bool = False
     on_duplicate: str = "ignore"
+    write_mode: Optional[str] = None
+    direct_db_source: Optional[str] = None
     async_run: bool = False
 
 class HistorySyncScheduleRequest(BaseModel):
     interval_minutes: int = 60
     lookback_days: int = 10
-    max_codes: int = 200
+    max_codes: int = 10000
     batch_size: int = 500
     tables: Optional[list[str]] = None
     dry_run: bool = False
     on_duplicate: str = "ignore"
+    write_mode: Optional[str] = None
+    direct_db_source: Optional[str] = None
 
 
 def _extract_code_block(text):
@@ -1696,6 +1706,10 @@ def _select_provider():
         return TushareProvider(token=cfg.get("data_provider.tushare_token"))
     if provider_source == "akshare":
         return AkshareProvider()
+    if provider_source == "mysql":
+        return MysqlProvider()
+    if provider_source == "postgresql":
+        return PostgresProvider()
     return DataProvider()
 
 
@@ -2115,18 +2129,14 @@ async def api_switch_strategy(req: StrategySwitchRequest):
 
 @app.post("/api/control/set_source")
 async def api_set_source(req: SourceSwitchRequest):
-    global cabinet_task, current_provider_source, current_cabinet
+    global cabinet_task, current_provider_source, current_cabinet, config
     source = str(req.source or "").lower().strip()
-    if source not in {"default", "tushare", "akshare"}:
-        return {"status": "error", "msg": "source must be one of: default, tushare, akshare"}
+    if source not in {"default", "tushare", "akshare", "mysql", "postgresql"}:
+        return {"status": "error", "msg": "source must be one of: default, tushare, akshare, mysql, postgresql"}
     cfg = ConfigLoader.reload()
-    if _system_mode(cfg) == "backtest":
-        baseline = cfg.get("global_backtest_baseline", {})
-        lock_source = bool((baseline or {}).get("lock_backtest_data_source", True))
-        fixed_source = str((baseline or {}).get("fixed_data_source", "default") or "default").strip().lower()
-        if lock_source and source != fixed_source:
-            return {"status": "error", "msg": f"回测模式已锁定数据源为 {fixed_source}，不允许切换为 {source}"}
-    config.set("data_provider.source", source)
+    cfg.set("data_provider.source", source)
+    cfg.save()
+    config = ConfigLoader.reload()
     current_provider_source = source
     restarted = False
     stock_code = None
@@ -2186,6 +2196,7 @@ async def api_get_status():
     }
 
 def _history_sync_payload_from_request(req: HistorySyncRunRequest):
+    cfg = ConfigLoader.reload()
     return {
         "codes": req.codes,
         "tables": req.tables,
@@ -2196,6 +2207,8 @@ def _history_sync_payload_from_request(req: HistorySyncRunRequest):
         "batch_size": max(1, int(req.batch_size or 1)),
         "dry_run": bool(req.dry_run),
         "on_duplicate": str(req.on_duplicate or "ignore"),
+        "write_mode": str(req.write_mode or cfg.get("history_sync.write_mode", "api") or "api"),
+        "direct_db_source": str(req.direct_db_source or cfg.get("history_sync.direct_db_source", "mysql") or "mysql"),
     }
 
 async def _run_history_sync_once(payload: dict):
@@ -2209,14 +2222,16 @@ async def _history_sync_scheduler_loop():
         interval = max(1, int(cfg.get("history_sync.interval_minutes", 60) or 60))
         payload = {
             "codes": cfg.get("history_sync.codes", None),
-            "tables": cfg.get("history_sync.tables", list(TABLE_INTERVAL_MAP.keys())),
+            "tables": cfg.get("history_sync.tables", list(DEFAULT_SYNC_TABLES)),
             "start_time": cfg.get("history_sync.start_time", None),
             "end_time": cfg.get("history_sync.end_time", None),
             "lookback_days": max(1, int(cfg.get("history_sync.lookback_days", 10) or 10)),
-            "max_codes": max(1, int(cfg.get("history_sync.max_codes", 200) or 200)),
+            "max_codes": max(1, int(cfg.get("history_sync.max_codes", 10000) or 10000)),
             "batch_size": max(1, int(cfg.get("history_sync.batch_size", 500) or 500)),
             "dry_run": bool(cfg.get("history_sync.dry_run", False)),
             "on_duplicate": str(cfg.get("history_sync.on_duplicate", "ignore") or "ignore"),
+            "write_mode": str(cfg.get("history_sync.write_mode", "api") or "api"),
+            "direct_db_source": str(cfg.get("history_sync.direct_db_source", "mysql") or "mysql"),
         }
         try:
             await _run_history_sync_once(payload)
@@ -2240,6 +2255,18 @@ async def api_history_sync_status():
         "scheduler_running": history_sync_scheduler_task is not None and not history_sync_scheduler_task.done(),
     }
 
+@app.get("/api/history_sync/records")
+async def api_history_sync_records(limit: int = 20, offset: int = 0):
+    data = await asyncio.to_thread(history_sync_service.list_records, limit, offset)
+    return {"status": "success", **data}
+
+@app.get("/api/history_sync/records/{run_id}")
+async def api_history_sync_record_detail(run_id: str):
+    record = await asyncio.to_thread(history_sync_service.get_record, run_id)
+    if not isinstance(record, dict):
+        return {"status": "error", "msg": "record not found", "run_id": run_id}
+    return {"status": "success", "record": record}
+
 @app.post("/api/history_sync/scheduler/start")
 async def api_history_sync_scheduler_start(req: HistorySyncScheduleRequest):
     global history_sync_scheduler_task
@@ -2249,9 +2276,11 @@ async def api_history_sync_scheduler_start(req: HistorySyncScheduleRequest):
     cfg.set("history_sync.lookback_days", max(1, int(req.lookback_days or 1)))
     cfg.set("history_sync.max_codes", max(1, int(req.max_codes or 1)))
     cfg.set("history_sync.batch_size", max(1, int(req.batch_size or 1)))
-    cfg.set("history_sync.tables", req.tables if req.tables else list(TABLE_INTERVAL_MAP.keys()))
+    cfg.set("history_sync.tables", req.tables if req.tables else list(DEFAULT_SYNC_TABLES))
     cfg.set("history_sync.dry_run", bool(req.dry_run))
     cfg.set("history_sync.on_duplicate", str(req.on_duplicate or "ignore"))
+    cfg.set("history_sync.write_mode", str(req.write_mode or "api"))
+    cfg.set("history_sync.direct_db_source", str(req.direct_db_source or "mysql"))
     cfg.save()
     if history_sync_scheduler_task is None or history_sync_scheduler_task.done():
         history_sync_scheduler_task = asyncio.create_task(_history_sync_scheduler_loop())

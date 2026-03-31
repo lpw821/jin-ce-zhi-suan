@@ -159,11 +159,6 @@ def apply_backtest_baseline(stock_code, strategy_id=None, strategy_mode=None, st
     if not isinstance(base_cfg, dict):
         base_cfg = {}
     before = json.dumps(base_cfg, ensure_ascii=False, sort_keys=True)
-    lock_source = bool(baseline.get("lock_backtest_data_source", True))
-    fixed_source = str(baseline.get("fixed_data_source", "default") or "default").strip().lower()
-    if lock_source and fixed_source in {"default", "tushare", "akshare"}:
-        _set_path(base_cfg, "data_provider.source", fixed_source)
-        _set_path(base_cfg, "data_provider.enable_fallback", False)
     adjustment_mode = str(profile.get("adjustment_mode", "")).strip()
     if adjustment_mode:
         _set_path(base_cfg, "data_provider.adjustment_mode", adjustment_mode)

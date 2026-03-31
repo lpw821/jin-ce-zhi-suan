@@ -44,7 +44,7 @@
 - 多策略并行：内置策略与用户策略统一纳管
 - 风控优先：门下省一票否决机制，覆盖止损、回撤、仓位约束
 - 回测闭环：从数据获取、信号执行到结果分析全链路打通
-- 数据源可切换：AkShare / Tushare / 默认 API
+- 数据源可切换：AkShare / Tushare / 默认 API / MySQL / PostgreSQL
 - 可视化运维：`server.py + dashboard.html` 提供操作面板
 
 <img width="2508" height="1431" alt="image" src="https://github.com/user-attachments/assets/dce52494-76c8-4c4b-ba22-772dd9cb8e83" />
@@ -232,15 +232,28 @@ python server.py
 | default API | `data_provider.source=default` + `default_api_url` + `default_api_key` | 需要可访问的私有/自建行情服务        | 统一分钟线、批量回测   |
 | Tushare     | `data_provider.source=tushare` + `tushare_token`                       | 需要 Tushare Token 与网络连通 | 标准化行情获取、历史补数 |
 | AkShare     | `data_provider.source=akshare`                                         | 通常无需 Token，但依赖网络与上游可用性 | 快速验证、轻量使用    |
+| MySQL       | `data_provider.source=mysql` + `mysql_*` 配置                           | 需安装 `pymysql` 并可直连 MySQL | 本地库直读、低延迟回测 |
+| PostgreSQL  | `data_provider.source=postgresql` + `postgres_*` 配置                   | 需安装 `psycopg2-binary` 并可直连 PostgreSQL | 本地库直读、低延迟回测 |
 
 说明：
 
 - 实盘入口 `run_live.py` 支持 `TUSHARE_TOKEN` 环境变量覆盖配置文件。
 - 未提供 Tushare Token 且选择 tushare 时，会自动回退到 akshare。
+- MySQL 直连默认读取表：`dat_1mins/dat_5mins/dat_10mins/dat_15mins/dat_30mins/dat_60mins/dat_day`，可在 `config.json` 覆盖。
+- MySQL 支持连接池与分页批量读取：`mysql_pool_size`、`mysql_pool_wait_timeout_sec`、`mysql_query_page_size`，用于大区间回测提速。
+- PostgreSQL 直连默认读取表：`dat_1mins/dat_5mins/dat_10mins/dat_15mins/dat_30mins/dat_60mins/dat_day`，可在 `config.json` 覆盖。
+- PostgreSQL 支持连接池与分页批量读取：`postgres_pool_size`、`postgres_pool_wait_timeout_sec`、`postgres_query_page_size`，用于大区间回测提速。
+- 回测支持将分钟K线缓存落库到数据库：`data_provider.backtest_cache_db_source` 可设为 `mysql` 或 `postgresql`。
+- 增量同步支持两种写入模式：`history_sync.write_mode=api`（写入 `default_api_url` 对应服务）或 `history_sync.write_mode=direct_db`（直连 `mysql/postgresql`）。
+- 直连数据库模式下，目标库由 `history_sync.direct_db_source` 指定，可选 `mysql` / `postgresql`。
+- PostgreSQL 落库使用 `ON CONFLICT (code, trade_time)`，目标表需具备 `(code, trade_time)` 唯一约束。
+- MySQL 落库使用 `ON DUPLICATE KEY UPDATE`，目标表需具备可触发冲突更新的唯一键（建议 `(code, trade_time)`）。
 
 #### 历史数据源表结构参照
 
-项目根目录下：历史数据源表结构.sql文件，可自建数据库表，并自行建立API服务，供本项目调用。
+- MySQL 建表参考：项目根目录 `历史数据源表结构.sql`。
+- 该脚本已包含分钟/日线表及 `uk_code_trade_time(code, trade_time)` 唯一索引定义，可直接用于 MySQL 初始化。
+- PostgreSQL 可按同名表结构迁移，并确保存在唯一约束 `(code, trade_time)`，以兼容缓存落库的 upsert 语义。
 
 ## 全局回测与实盘监控模板
 

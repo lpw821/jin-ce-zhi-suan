@@ -3,3 +3,5 @@ numpy
 tqdm
 matplotlib
 mplfinance
+pymysql
+psycopg2-binary

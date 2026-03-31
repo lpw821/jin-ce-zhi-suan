@@ -18,6 +18,8 @@ from src.strategies.strategy_factory import create_strategies
 from src.utils.data_provider import DataProvider
 from src.utils.tushare_provider import TushareProvider
 from src.utils.akshare_provider import AkshareProvider
+from src.utils.mysql_provider import MysqlProvider
+from src.utils.postgres_provider import PostgresProvider
 from src.utils.config_loader import ConfigLoader
 from src.utils.indicators import Indicators
 
@@ -121,7 +123,47 @@ class BacktestCabinet:
             return TushareProvider(token=self.config.get("data_provider.tushare_token"))
         if source == 'akshare':
             return AkshareProvider()
+        if source == 'mysql':
+            return MysqlProvider()
+        if source == 'postgresql':
+            return PostgresProvider()
         return DataProvider()
+
+    def _resolve_backtest_cache_db_source(self):
+        target = str(self.config.get("data_provider.backtest_cache_db_source", "") or "").strip().lower()
+        if target in {"mysql", "postgresql"}:
+            return target
+        return ""
+
+    async def _persist_backtest_cache_to_db(self, df, interval, provider_source):
+        if df is None or df.empty:
+            return
+        cache_db_source = self._resolve_backtest_cache_db_source()
+        if not cache_db_source:
+            return
+        if provider_source == cache_db_source:
+            return
+        writer = self._build_provider(cache_db_source)
+        if not hasattr(writer, "upsert_kline_data"):
+            await self._emit('backtest_flow', {
+                'module': '工部',
+                'level': 'warning',
+                'msg': f'缓存落库跳过：{cache_db_source} 不支持 upsert'
+            })
+            return
+        written = await asyncio.to_thread(writer.upsert_kline_data, df, interval)
+        if int(written or 0) <= 0 and getattr(writer, "last_error", ""):
+            await self._emit('backtest_flow', {
+                'module': '工部',
+                'level': 'warning',
+                'msg': f'缓存落库失败：{cache_db_source} {writer.last_error}'
+            })
+            return
+        await self._emit('backtest_flow', {
+            'module': '工部',
+            'level': 'success',
+            'msg': f'缓存落库完成：{cache_db_source} interval={interval} 写入 {int(written or 0)} 条'
+        })
 
     def _check_provider_connectivity(self, provider, provider_source):
         try:
@@ -499,6 +541,7 @@ class BacktestCabinet:
                 })
                 await self._emit('backtest_flow', {'module': '工部', 'level': 'system', 'msg': '数据获取阶段：数据清洗完成，写入缓存'})
                 self._cache_set(start_date, end_date, "1min", provider_source, df)
+                await self._persist_backtest_cache_to_db(df, "1min", provider_source)
             else:
                 await self._emit('backtest_progress', {
                     'progress': 12,

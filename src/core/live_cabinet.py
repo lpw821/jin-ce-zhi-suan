@@ -18,6 +18,7 @@ from src.utils.data_provider import DataProvider
 import asyncio
 from src.utils.tushare_provider import TushareProvider
 from src.utils.akshare_provider import AkshareProvider
+from src.utils.mysql_provider import MysqlProvider
 from src.utils.indicators import Indicators
 from src.utils.config_loader import ConfigLoader
 
@@ -33,6 +34,9 @@ class LiveCabinet:
         elif provider_type == 'akshare':
             self.provider = AkshareProvider()
             print("🌐 Data Source: Akshare (Free)")
+        elif provider_type == 'mysql':
+            self.provider = MysqlProvider()
+            print("🌐 Data Source: MySQL")
         else:
             self.provider = DataProvider()
             print("🌐 Data Source: Default API")

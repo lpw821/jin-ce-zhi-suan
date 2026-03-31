@@ -523,15 +523,7 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
     capital = 转浮点(task.get("capital", 1_000_000), 1_000_000)
     max_retry = max(0, 转整数(task.get("max_retry", 1), 1))
     scenario_tag = str(task.get("scenario_tag", "")).strip()
-    if str(task.get("data_source", "default")).strip().lower() not in {"", "default"}:
-        return {
-            "task_id": task_id,
-            "ok": False,
-            "status": "failed",
-            "report_id": "",
-            "error_msg": "数据源必须为default",
-            "result_row": None,
-        }
+    data_source = str(task.get("data_source", "")).strip().lower()
     ok_start, start_date_norm = 规范日期(start_date)
     ok_end, end_date_norm = 规范日期(end_date)
     if not ok_start or not ok_end:
@@ -548,6 +540,21 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
     attempts = 0
     while attempts <= max_retry:
         attempts += 1
+        if data_source:
+            ok_switch, switch_resp, switch_err = 安全请求(base_url, "POST", "/api/control/set_source", body={"source": data_source}, timeout=20)
+            if not ok_switch or str(switch_resp.get("status", "")).lower() != "success":
+                if attempts <= max_retry:
+                    print(f"[RETRY] task={task_id} 切换数据源失败，准备重试")
+                    time.sleep(retry_sleep_seconds)
+                    continue
+                return {
+                    "task_id": task_id,
+                    "ok": False,
+                    "status": "failed",
+                    "report_id": "",
+                    "error_msg": switch_err or str(switch_resp.get("msg", "set_source失败")),
+                    "result_row": None,
+                }
         payload = {
             "stock_code": stock_code,
             "strategy_id": strategy_id,

@@ -245,3 +245,29 @@ class TushareProvider:
         except Exception as e:
             print(f"Error fetching Tushare history: {e}")
             return cached_df if not cached_df.empty else pd.DataFrame()
+
+    def fetch_daily_data(self, code, start_time, end_time):
+        if not self.pro:
+            return pd.DataFrame()
+        start_str = start_time.strftime("%Y%m%d")
+        end_str = end_time.strftime("%Y%m%d")
+        try:
+            df = self.pro.daily(ts_code=code, start_date=start_str, end_date=end_str)
+            if df is None or df.empty:
+                return pd.DataFrame()
+            work = df.copy()
+            if "trade_date" not in work.columns:
+                return pd.DataFrame()
+            work["dt"] = pd.to_datetime(work["trade_date"], format="%Y%m%d", errors="coerce")
+            work["open"] = pd.to_numeric(work.get("open"), errors="coerce")
+            work["high"] = pd.to_numeric(work.get("high"), errors="coerce")
+            work["low"] = pd.to_numeric(work.get("low"), errors="coerce")
+            work["close"] = pd.to_numeric(work.get("close"), errors="coerce")
+            work["vol"] = pd.to_numeric(work.get("vol"), errors="coerce") * 100.0
+            work["amount"] = pd.to_numeric(work.get("amount"), errors="coerce") * 1000.0
+            work["code"] = code
+            work = work.dropna(subset=["dt", "open", "high", "low", "close"])
+            work = work.sort_values("dt").drop_duplicates(subset=["dt"]).reset_index(drop=True)
+            return work[["code", "dt", "open", "high", "low", "close", "vol", "amount"]]
+        except Exception:
+            return pd.DataFrame()
