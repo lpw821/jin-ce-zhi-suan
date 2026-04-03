@@ -6010,10 +6010,21 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const data = await res.json();
                 const reportStatus = String(data.current_report_status || '').toLowerCase();
                 const reportError = data.current_report_error;
-                const progressVal = Number((data.progress || {}).progress || 0);
-                const isBacktestRunning = Boolean(data.is_running && String(data.active_cabinet_type || '').toLowerCase().includes('backtest'));
+                const progressObj = (data.progress && typeof data.progress === 'object') ? data.progress : {};
+                const progressVal = Number(progressObj.progress || 0);
+                const progressDate = String(progressObj.current_date || '--');
+                const activeType = String(data.active_cabinet_type || '').toLowerCase();
+                const isBacktestRunning = Boolean(
+                    data.is_running && (
+                        activeType.includes('backtest')
+                        || reportStatus === 'running'
+                        || progressVal > 0
+                        || Boolean(data.current_report_id)
+                    )
+                );
                 if (isBacktestRunning) {
                     backtestNoRunningTicks = 0;
+                    updateBacktestProgress({ progress: progressVal, current_date: progressDate });
                 } else {
                     backtestNoRunningTicks += 1;
                 }
@@ -6056,6 +6067,22 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             backtestStatusMonitorTimer = setTimeout(monitorBacktestTaskStatus, 2000);
         }
 
+        async function startBacktestByApi(payload) {
+            const res = await fetch('/api/control/start_backtest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            if (String(data.status || '').toLowerCase() !== 'success') {
+                throw new Error(data.msg || '启动失败');
+            }
+            return data;
+        }
+
         async function recoverBacktestResultFromApi() {
             try {
                 const res = await fetch('/api/report/latest');
@@ -6087,7 +6114,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             }
         }
 
-        function startBacktest() {
+        async function startBacktest() {
             if (backtestBtnState === BACKTEST_BTN_STATE.running) {
                 stopBacktest();
                 return;
@@ -6140,18 +6167,16 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (timeEl) timeEl.innerText = '--';
             setBacktestButtonState(BACKTEST_BTN_STATE.running);
             try {
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    throw new Error('WebSocket 未连接');
-                }
-                sendWsCommand({
-                    type: 'start_backtest',
-                    stock: code,
-                    strategy: strategy,
+                const reqPayload = {
+                    stock_code: code,
+                    strategy_id: strategy,
                     strategy_ids: picked.length && picked.length !== strategyCatalog.length ? picked : null,
                     start: dates.start,
                     end: dates.end,
                     capital: capital
-                });
+                };
+                const startResp = await startBacktestByApi(reqPayload);
+                logMessage('回测', `任务已提交 report_id=${startResp.report_id || '--'}`, 'system');
             } catch (e) {
                 logMessage('回测', `启动失败: ${e}`, 'danger');
                 setBacktestButtonState(BACKTEST_BTN_STATE.error);

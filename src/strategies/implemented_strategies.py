@@ -95,6 +95,8 @@ class Strategy00(BaseImplementedStrategy):
         code = kline['code']
         qty = int(self.positions.get(code, 0))
         current_dt = pd.to_datetime(kline['dt'])
+        if qty > 0:
+            self.entered[code] = True
 
         if qty <= 0 and not self.entered.get(code, False):
             price = float(kline.get('close', 0.0))
@@ -103,7 +105,6 @@ class Strategy00(BaseImplementedStrategy):
             buy_qty = (raw_qty // 100) * 100
             if buy_qty <= 0:
                 return None
-            self.entered[code] = True
             return {
                 'strategy_id': self.id,
                 'code': code,

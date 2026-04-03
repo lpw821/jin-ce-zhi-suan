@@ -47,11 +47,15 @@
 - 数据源可切换：AkShare / Tushare / 默认 API / MySQL / PostgreSQL
 - 可视化运维：`server.py + dashboard.html` 提供操作面板
 
+### 回测模式
+![alt text](static/回测模式.png)
+#### 回测k线信号标记与回测报告
+![alt text](static/回测k线显示.png)
+![alt text](static/回测报告.png)
 
-<img width="2508" height="1482" alt="image" src="https://github.com/user-attachments/assets/4be01afb-9a6a-4128-b02d-6aac704d776a" />
-<img width="2508" height="1482" alt="image" src="https://github.com/user-attachments/assets/3bcedbb3-329f-406b-a267-e3e8f32131b5" />
-
-
+### 实盘模式与信号推送
+![alt text](static/实盘模式.png)
+![alt text](static/实盘信号推送.png)
 
 ![](C:\Users\scott\AppData\Roaming\marktext\images\2026-03-23-22-14-57-image.png)
 

@@ -566,7 +566,7 @@ class BacktestCabinet:
                         df = pd.DataFrame()
                 if df.empty:
                     provider_msg = ""
-                    if provider_source == "default" and hasattr(provider, "last_error") and provider.last_error:
+                    if hasattr(provider, "last_error") and provider.last_error:
                         provider_msg = f" 诊断: {provider.last_error}"
                     fail_msg = f"无法获取 {self.stock_code} 的历史数据，回测终止。{provider_msg}".strip()
                     await self._emit('system', {'msg': f"❌ {fail_msg}"})

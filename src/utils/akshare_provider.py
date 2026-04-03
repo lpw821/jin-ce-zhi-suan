@@ -11,6 +11,7 @@ class AkshareProvider:
     """
     def __init__(self):
         cfg = ConfigLoader.reload()
+        self.last_error = ""
         self._cache_enabled = bool(cfg.get("data_provider.local_cache_enabled", True))
         cache_dir = str(cfg.get("data_provider.local_cache_dir", "data/history/cache") or "data/history/cache")
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -124,11 +125,14 @@ class AkshareProvider:
                     # Or just recent few minutes.
                     
                     df = ak.stock_zh_a_hist_min_em(symbol=symbol, period='1', adjust='qfq')
+                    self.last_error = ""
                     break
                 except Exception as e:
+                    self.last_error = f"get_latest_bar_retry_failed attempt={i+1}/{max_retries} code={code} err={e}"
                     time.sleep(1)
             
             if df is None or df.empty:
+                self.last_error = f"get_latest_bar_empty code={code}"
                 return None
                 
             row = df.iloc[-1]
@@ -148,6 +152,7 @@ class AkshareProvider:
                 'amount': float(row['成交额'])
             }
         except Exception as e:
+            self.last_error = f"get_latest_bar_failed code={code} err={e}"
             print(f"Error fetching Akshare RT data: {e}")
             return None
 
@@ -194,12 +199,15 @@ class AkshareProvider:
                         start_date=start_str, 
                         end_date=end_str
                     )
+                    self.last_error = ""
                     break
                 except Exception as e:
+                    self.last_error = f"fetch_minute_data_retry_failed attempt={i+1}/{max_retries} code={code} range={start_str}->{end_str} err={e}"
                     print(f"Retry {i+1}/{max_retries} failed: {e}")
                     time.sleep(1)
             
             if df is None or df.empty:
+                self.last_error = f"fetch_minute_data_empty code={code} range={start_str}->{end_str}"
                 print(f"⚠️ Akshare returned empty data for {symbol}.")
                 return cached_df if not cached_df.empty else pd.DataFrame()
                 
@@ -227,8 +235,10 @@ class AkshareProvider:
                 df = pd.concat([cached_df, df], ignore_index=True)
                 df = self._normalize_minutes_df(df)
             self._save_minute_cache(code, df)
+            self.last_error = ""
             return df
             
         except Exception as e:
+            self.last_error = f"fetch_minute_data_failed code={code} range={start_str}->{end_str} err={e}"
             print(f"❌ Error fetching Akshare history: {e}")
             return cached_df if not cached_df.empty else pd.DataFrame()

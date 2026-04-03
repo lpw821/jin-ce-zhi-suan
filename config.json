@@ -1,7 +1,7 @@
 {
   "system": {
-    "mode": "live",
-    "enable_live": true,
+    "mode": "backtest",
+    "enable_live": false,
     "initial_capital": 1000000,
     "log_level": "INFO",
     "server_host": "0.0.0.0",
@@ -24,9 +24,9 @@
   "data_provider": {
     "source": "tushare",
     "enable_fallback": false,
-    "tushare_token": "",
-    "default_api_key": "",
-    "default_api_url": "",
+    "tushare_token": "4ba065ecb8eebdebc93dffaef6bc051eeb3a98b46eb7d94fd697282f",
+    "default_api_key": "abc123",
+    "default_api_url": "https://suzuki-subsection-latter-brook.trycloudflare.com",
     "mysql_host": "127.0.0.1",
     "mysql_port": 3306,
     "mysql_user": "root",
@@ -68,7 +68,7 @@
     "strategy_llm_model": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     "strategy_llm_timeout_sec": 240,
     "api_key": "",
-    "adjustment_mode": "hfq"
+    "adjustment_mode": "none"
   },
   "history_sync": {
     "scheduler_enabled": false,
@@ -134,7 +134,7 @@
   },
   "trading_cost": {
     "commission_rate": 0.00025,
-    "min_commission": 5,
+    "min_commission": 5.0,
     "stamp_duty": 0.001,
     "transfer_fee": 0
   },
@@ -259,7 +259,7 @@
         }
       }
     },
-    "last_applied_profile": "cn_equity_mid_long",
+    "last_applied_profile": "cn_equity_intraday",
     "last_applied_market": "A股"
   },
   "live_monitoring": {
@@ -319,7 +319,7 @@
       "system"
     ],
     "webhook_urls": [],
-    "feishu_webhook_url": "",
+    "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/561e369f-0c2a-4e53-8a1d-977cb926a99d",
     "feishu_secret": "",
     "dedupe_window_seconds": 12,
     "timeout_sec": 5,

@@ -75,14 +75,33 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("CabinetServer")
+_QUIET_HTTP_PATHS = {
+    "/api/status",
+    "/api/history_sync/status",
+    "/api/config",
+    "/api/config/save",
+    "/api/live/fund_pool",
+}
+
+class _UvicornAccessPathFilter(logging.Filter):
+    def filter(self, record):
+        msg = str(record.getMessage() or "")
+        for p in _QUIET_HTTP_PATHS:
+            if f" {p} " in msg or f" {p}?" in msg:
+                return False
+        return True
 
 app = FastAPI(title="三省六部 AI 交易决策控制台")
 
 @app.middleware("http")
 async def log_requests(request, call_next):
-    logger.info(f"Incoming Request: {request.method} {request.url.path}")
+    path = str(request.url.path or "")
+    quiet = path in _QUIET_HTTP_PATHS
+    if not quiet:
+        logger.info(f"Incoming Request: {request.method} {path}")
     response = await call_next(request)
-    logger.info(f"Response Status: {response.status_code}")
+    if not quiet:
+        logger.info(f"Response Status: {response.status_code}")
     return response
 
 # CORS
@@ -3145,7 +3164,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # Handle commands
             try:
                 cmd = json.loads(data)
-                print(f"Received command: {cmd}")
+                if str(cmd.get("type", "")).strip().lower() != "ping":
+                    print(f"Received command: {cmd}")
                 
                 if cmd.get("type") == "reload_strategies":
                     # Reload the modules dynamically via websocket command
@@ -3437,6 +3457,13 @@ async def emit_event_to_ws(event_type, data, stock_code=None):
         current_backtest_progress = {"progress": 100, "current_date": "Done"}
     elif event_type == "backtest_progress":
         current_backtest_progress = emit_data
+        if isinstance(emit_data, dict) and str(emit_data.get("phase", "")).lower() == "data_fetch":
+            logger.info(
+                "BacktestDataFetch progress=%s phase_label=%s current_date=%s",
+                emit_data.get("progress"),
+                emit_data.get("phase_label"),
+                emit_data.get("current_date"),
+            )
     elif event_type == "backtest_failed":
         msg = emit_data.get("msg") if isinstance(emit_data, dict) else str(emit_data)
         fail_current_backtest_report(msg)
@@ -3457,6 +3484,11 @@ async def emit_event_to_ws(event_type, data, stock_code=None):
                 "price": float(emit_data.get("price", 0.0) or 0.0),
                 "qty": int(emit_data.get("qty", 0) or 0)
             })
+    elif event_type == "backtest_flow":
+        if isinstance(emit_data, dict) and str(emit_data.get("module", "")).strip() == "工部":
+            flow_msg = str(emit_data.get("msg", "") or "").strip()
+            if flow_msg:
+                logger.info("BacktestDataFetch flow=%s", flow_msg)
     payload = {
         "type": event_type,
         "data": emit_data,
@@ -3495,6 +3527,7 @@ async def _broadcast_system_and_notify(msg: str, stock_codes=None):
 async def startup_event():
     global history_sync_scheduler_task, startup_server_host, startup_server_port
     _apply_log_level()
+    logging.getLogger("uvicorn.access").addFilter(_UvicornAccessPathFilter())
     logger.info("Initializing Cabinet Server...")
     load_report_history()
     _warmup_classic_pattern_thumbs()
