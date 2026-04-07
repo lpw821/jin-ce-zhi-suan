@@ -11,7 +11,6 @@ config.private.json
 reports/
 .env
 .env.*WWWW
-data/reports/
 data/history/
 data/live_fund_pool/
 backtest_report.html
@@ -21,3 +20,4 @@ server.log
 USER_GUIDE.md
 scripts/replay_live_fastforward.py
 config.json
+data/reports/
