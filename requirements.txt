@@ -5,3 +5,11 @@ matplotlib
 mplfinance
 pymysql
 psycopg2-binary
+requests
+tushare
+akshare
+fastapi
+uvicorn
+pydantic
+starlette
+pytest

@@ -160,7 +160,9 @@ report_history_mtime = None
 AI_REVIEW_SCHEMA_VERSION = 2
 report_history = []
 REPORTS_DIR = os.path.join("data", "reports")
-REPORTS_FILE = os.path.join(REPORTS_DIR, "backtest_reports.json")
+REPORTS_LEGACY_FILE = os.path.join(REPORTS_DIR, "backtest_reports.json")
+REPORT_FILE_PREFIX = "backtest_report_"
+REPORT_FILE_SUFFIX = ".json"
 PATTERN_THUMB_DIR = os.path.join(REPORTS_DIR, "pattern_thumbs")
 CLASSIC_PATTERN_ITEMS = [
     {"stock": "688585", "start": "2025-07-09", "end": "2025-12-31"},
@@ -993,22 +995,88 @@ async def _run_backtest_provider_precheck(stock_code: str, start: Optional[str],
     })
     return False, provider_source, str(reason or "")
 
+def _iter_report_file_paths():
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    files = []
+    try:
+        for entry in os.scandir(REPORTS_DIR):
+            if not entry.is_file():
+                continue
+            name = str(entry.name or "")
+            if name.startswith(REPORT_FILE_PREFIX) and name.endswith(REPORT_FILE_SUFFIX):
+                files.append(entry.path)
+    except Exception:
+        return []
+    return files
+
+def _build_report_storage_signature():
+    paths = _iter_report_file_paths()
+    latest_mtime = 0.0
+    total_size = 0
+    for path in paths:
+        try:
+            st = os.stat(path)
+            latest_mtime = max(latest_mtime, float(st.st_mtime))
+            total_size += int(st.st_size)
+        except Exception:
+            continue
+    legacy_mtime = os.path.getmtime(REPORTS_LEGACY_FILE) if os.path.exists(REPORTS_LEGACY_FILE) else 0.0
+    legacy_size = os.path.getsize(REPORTS_LEGACY_FILE) if os.path.exists(REPORTS_LEGACY_FILE) else 0
+    return (len(paths), float(latest_mtime), int(total_size), float(legacy_mtime), int(legacy_size))
+
+def _load_report_item(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            if isinstance(payload.get("report"), dict):
+                return payload.get("report")
+            if isinstance(payload.get("reports"), list):
+                rows = payload.get("reports")
+                if rows and isinstance(rows[0], dict):
+                    return rows[0]
+            if payload.get("report_id"):
+                return payload
+    except Exception as e:
+        logger.warning("failed to load report item path=%s err=%s", path, e)
+    return None
+
+def _report_file_path(report_id):
+    rid = re.sub(r"[^0-9A-Za-z_.-]+", "_", str(report_id or "").strip())
+    if not rid:
+        rid = f"{int(datetime.now().timestamp() * 1000)}-{os.urandom(2).hex()}"
+    return os.path.join(REPORTS_DIR, f"{REPORT_FILE_PREFIX}{rid}{REPORT_FILE_SUFFIX}")
+
 def load_report_history(force=False):
     global report_history, latest_backtest_result, latest_strategy_reports, report_history_mtime, report_detail_cache
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    if not os.path.exists(REPORTS_FILE):
-        report_history = []
-        report_history_mtime = None
-        report_detail_cache = {}
-        return
     try:
-        mtime = os.path.getmtime(REPORTS_FILE)
-        if (not force) and (report_history_mtime is not None) and (abs(float(mtime) - float(report_history_mtime)) < 1e-9):
+        signature = _build_report_storage_signature()
+        if (not force) and (report_history_mtime is not None) and report_history_mtime == signature:
             return
-        with open(REPORTS_FILE, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        report_history = payload.get("reports", [])
-        report_history_mtime = float(mtime)
+        rows = []
+        for path in _iter_report_file_paths():
+            rep = _load_report_item(path)
+            if isinstance(rep, dict):
+                rows.append(rep)
+        if (not rows) and os.path.exists(REPORTS_LEGACY_FILE):
+            with open(REPORTS_LEGACY_FILE, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            legacy_rows = payload.get("reports", [])
+            if isinstance(legacy_rows, list):
+                for rep in legacy_rows:
+                    if isinstance(rep, dict):
+                        rows.append(rep)
+        rows = sorted(
+            rows,
+            key=lambda x: (
+                str(x.get("created_at") or ""),
+                str(x.get("report_id") or "")
+            ),
+            reverse=True
+        )
+        report_history = rows
+        report_history_mtime = signature
         report_detail_cache = {}
         if report_history:
             latest = report_history[0]
@@ -1025,9 +1093,27 @@ def load_report_history(force=False):
 def persist_report_history():
     global report_history_mtime, report_detail_cache
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    with open(REPORTS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"reports": report_history}, f, ensure_ascii=False, indent=2, default=str)
-    report_history_mtime = os.path.getmtime(REPORTS_FILE) if os.path.exists(REPORTS_FILE) else None
+    keep_paths = set()
+    for rep in report_history if isinstance(report_history, list) else []:
+        if not isinstance(rep, dict):
+            continue
+        rid = str(rep.get("report_id") or "").strip()
+        if not rid:
+            rid = f"{int(datetime.now().timestamp() * 1000)}-{os.urandom(2).hex()}"
+            rep["report_id"] = rid
+        path = _report_file_path(rid)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"report": rep}, f, ensure_ascii=False, indent=2, default=str)
+        keep_paths.add(os.path.abspath(path))
+    for path in _iter_report_file_paths():
+        abs_path = os.path.abspath(path)
+        if abs_path in keep_paths:
+            continue
+        try:
+            os.remove(abs_path)
+        except Exception:
+            pass
+    report_history_mtime = _build_report_storage_signature()
     report_detail_cache = {}
 
 

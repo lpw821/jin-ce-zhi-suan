@@ -8,29 +8,25 @@ from src.core.backtest_cabinet import BacktestCabinet
 from src.utils.backtest_baseline import apply_backtest_baseline
 
 REPORTS_DIR = os.path.join("data", "reports")
-REPORTS_FILE = os.path.join(REPORTS_DIR, "backtest_reports.json")
+REPORT_FILE_PREFIX = "backtest_report_"
+REPORT_FILE_SUFFIX = ".json"
 
-def load_report_history():
+def persist_single_report(report):
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    if not os.path.exists(REPORTS_FILE):
-        return []
-    try:
-        with open(REPORTS_FILE, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        return payload.get("reports", [])
-    except Exception:
-        return []
-
-def persist_report_history(report_history):
-    os.makedirs(REPORTS_DIR, exist_ok=True)
-    with open(REPORTS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"reports": report_history}, f, ensure_ascii=False, indent=2, default=str)
+    report_id = str(report.get("report_id", "")).strip()
+    if not report_id:
+        report_id = f"{int(time.time() * 1000)}-{os.urandom(2).hex()}"
+        report["report_id"] = report_id
+    file_name = f"{REPORT_FILE_PREFIX}{report_id}{REPORT_FILE_SUFFIX}"
+    file_path = os.path.join(REPORTS_DIR, file_name)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump({"report": report}, f, ensure_ascii=False, indent=2, default=str)
+    return file_path
 
 def save_backtest_report(args, result_data, strategy_reports):
     if not result_data:
         return
-    report_history = load_report_history()
-    report_id = str(int(time.time() * 1000))
+    report_id = f"{int(time.time() * 1000)}-{os.urandom(2).hex()}"
     report = {
         "report_id": report_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -40,10 +36,8 @@ def save_backtest_report(args, result_data, strategy_reports):
         "ranking": result_data.get("ranking", []),
         "strategy_reports": strategy_reports
     }
-    report_history = [r for r in report_history if r.get("report_id") != report_id]
-    report_history.insert(0, report)
-    persist_report_history(report_history)
-    print(f"[REPORT] saved to {REPORTS_FILE} (report_id={report_id})")
+    saved_path = persist_single_report(report)
+    print(f"[REPORT] saved to {saved_path} (report_id={report_id})")
 
 async def main():
     parser = argparse.ArgumentParser(description="Run backtest via BacktestCabinet")
