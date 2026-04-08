@@ -3,7 +3,7 @@ import time
 import os
 import json
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.utils.data_provider import DataProvider
 from src.core.crown_prince import CrownPrince
 from src.core.zhongshu_sheng import ZhongshuSheng
@@ -23,12 +23,17 @@ from src.utils.akshare_provider import AkshareProvider
 from src.utils.mysql_provider import MysqlProvider
 from src.utils.indicators import Indicators
 from src.utils.config_loader import ConfigLoader
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 class LiveCabinet:
     def __init__(self, stock_code, initial_capital=1000000.0, provider_type='default', tushare_token=None, event_callback=None, strategy_ids=None):
         self.stock_code = stock_code
         self.event_callback = event_callback # Callback for UI updates
         self.config = ConfigLoader.reload()
+        self._cn_tz = ZoneInfo("Asia/Shanghai") if ZoneInfo is not None else timezone(timedelta(hours=8))
         self.provider_type = str(provider_type or "default").lower()
         self.tushare_token = tushare_token or self.config.get("data_provider.tushare_token", "")
         
@@ -542,9 +547,13 @@ class LiveCabinet:
             tz_obj = getattr(ts, "tz", None)
             if tz_obj is not None:
                 try:
-                    ts = ts.tz_convert(None)
+                    ts = ts.tz_convert(self._cn_tz)
                 except Exception:
+                    ts = ts.tz_localize(self._cn_tz)
+                try:
                     ts = ts.tz_localize(None)
+                except Exception:
+                    pass
         except Exception:
             pass
         return ts

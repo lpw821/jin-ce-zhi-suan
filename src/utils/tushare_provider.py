@@ -1,11 +1,15 @@
 # src/utils/tushare_provider.py
 import tushare as ts
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import time
 from src.utils.config_loader import ConfigLoader
 from src.utils.indicators import Indicators
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 class TushareProvider:
     """
@@ -33,6 +37,7 @@ class TushareProvider:
         self._rt_min_recent_calls = []
         self._rt_min_block_until = 0.0
         self._rt_min_cache = {}
+        self._cn_tz = ZoneInfo("Asia/Shanghai") if ZoneInfo is not None else timezone(timedelta(hours=8))
         self.last_error = ""
         import tushare.pro.client as client
         client.DataApi._DataApi__http_url = "http://tushare.xyz"
@@ -217,7 +222,7 @@ class TushareProvider:
         safe_code = str(code).upper().replace(".", "_")
         return os.path.join(self._cache_dir, f"tushare_{safe_code}_rt_today.csv")
 
-    def _to_naive_ts(self, value):
+    def _to_shanghai_naive_ts(self, value):
         ts_val = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts_val):
             return ts_val
@@ -225,11 +230,32 @@ class TushareProvider:
             tz_obj = getattr(ts_val, "tz", None)
             if tz_obj is not None:
                 try:
-                    ts_val = ts_val.tz_convert(None)
+                    ts_val = ts_val.tz_convert(self._cn_tz)
                 except Exception:
+                    ts_val = ts_val.tz_localize(self._cn_tz)
+                try:
                     ts_val = ts_val.tz_localize(None)
+                except Exception:
+                    pass
         except Exception:
             pass
+        return ts_val
+
+    def _to_naive_ts(self, value):
+        return self._to_shanghai_naive_ts(value)
+
+    def _normalize_intraday_market_ts(self, value):
+        ts_val = self._to_shanghai_naive_ts(value)
+        if pd.isna(ts_val):
+            return ts_val
+        if self._is_cn_trading_minutes(ts_val):
+            return ts_val
+        minus_8h = ts_val - pd.Timedelta(hours=8)
+        if self._is_cn_trading_minutes(minus_8h):
+            return minus_8h
+        plus_8h = ts_val + pd.Timedelta(hours=8)
+        if self._is_cn_trading_minutes(plus_8h):
+            return plus_8h
         return ts_val
 
     def _normalize_minutes_df(self, df):
@@ -268,7 +294,7 @@ class TushareProvider:
             df = self._normalize_minutes_df(df)
             if df.empty:
                 return pd.DataFrame(), False
-            df["dt"] = pd.to_datetime(df["dt"], errors="coerce").apply(self._to_naive_ts)
+            df["dt"] = pd.to_datetime(df["dt"], errors="coerce").apply(self._normalize_intraday_market_ts)
             df = df.dropna(subset=["dt"])
             full_coverage = df["dt"].min() <= st and df["dt"].max() >= et
             df_range = df[(df["dt"] >= st) & (df["dt"] <= et)].copy()
@@ -307,6 +333,8 @@ class TushareProvider:
             df = self._normalize_minutes_df(df)
             if df.empty:
                 return pd.DataFrame()
+            df["dt"] = pd.to_datetime(df["dt"], errors="coerce").apply(self._normalize_intraday_market_ts)
+            df = df.dropna(subset=["dt"])
             if day_text:
                 df = df[df["dt"].dt.strftime("%Y-%m-%d") == str(day_text)]
             return self._normalize_minutes_df(df)
@@ -322,6 +350,8 @@ class TushareProvider:
             work = self._normalize_minutes_df(df)
             if work.empty:
                 return
+            work["dt"] = pd.to_datetime(work["dt"], errors="coerce").apply(self._normalize_intraday_market_ts)
+            work = work.dropna(subset=["dt"])
             latest_day = work["dt"].max().strftime("%Y-%m-%d")
             work = work[work["dt"].dt.strftime("%Y-%m-%d") == latest_day]
             work.to_csv(path, index=False, encoding="utf-8")
@@ -436,7 +466,7 @@ class TushareProvider:
             return pd.DataFrame()
         st = self._to_naive_ts(start_time) if start_time is not None else None
         et = self._to_naive_ts(end_time) if end_time is not None else None
-        work["dt"] = pd.to_datetime(work["dt"], errors="coerce").apply(self._to_naive_ts)
+        work["dt"] = pd.to_datetime(work["dt"], errors="coerce").apply(self._normalize_intraday_market_ts)
         work = work.dropna(subset=["dt"])
         if st is not None and (not pd.isna(st)):
             work = work[work["dt"] >= st]
@@ -469,7 +499,7 @@ class TushareProvider:
                 df = self._fetch_rt_min(code)
                 if df is not None and not df.empty:
                     row = df.sort_values("dt").iloc[-1]
-                    dt = pd.to_datetime(row.get('dt'), errors='coerce')
+                    dt = self._to_naive_ts(row.get('dt'))
                     if pd.isna(dt):
                         raise ValueError("rt_min invalid dt")
 
@@ -518,7 +548,7 @@ class TushareProvider:
                 self.last_error = f"get_realtime_quotes_missing_time_fields code={code}"
                 return None
             dt_str = f"{date_str} {time_str}"
-            dt = pd.to_datetime(dt_str, errors='coerce')
+            dt = self._to_naive_ts(dt_str)
             if pd.isna(dt):
                 self.last_error = f"get_realtime_quotes_invalid_dt code={code} raw={dt_str}"
                 return None

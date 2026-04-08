@@ -1467,6 +1467,7 @@
         let liveEnabled = window.__LIVE_ENABLED__ === true;
         let liveActionPending = false;
         let liveLastError = null;
+        let pendingLiveStrategyProfiles = null;
         let currentSource = 'default';
         let strategyCatalog = [];
         let selectedStrategyIds = [];
@@ -2176,6 +2177,65 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (!picked.length) return;
             selectedStrategyIds = Array.from(new Set(picked));
             syncStrategySelectionUI();
+        }
+
+        function applyLiveStrategyProfiles(profiles, runningCodes = []) {
+            const profileMap = (profiles && typeof profiles === 'object') ? profiles : {};
+            const keys = Object.keys(profileMap);
+            if (!keys.length) return false;
+            if (!Array.isArray(strategyCatalog) || !strategyCatalog.length) {
+                pendingLiveStrategyProfiles = {
+                    profiles: profileMap,
+                    runningCodes: Array.isArray(runningCodes) ? runningCodes.slice() : []
+                };
+                fetchGlobalStrategies();
+                return false;
+            }
+            const allIds = strategyCatalog.map(s => String(s.id)).filter(Boolean);
+            if (!allIds.length) return false;
+            const allowSet = new Set(allIds);
+            const preferredCode = normalizeCode(document.getElementById('stock-search-input')?.value || '');
+            const candidates = [];
+            if (preferredCode && profileMap[preferredCode] !== undefined) candidates.push(preferredCode);
+            if (liveFundPoolSelectedCode && profileMap[liveFundPoolSelectedCode] !== undefined && !candidates.includes(liveFundPoolSelectedCode)) {
+                candidates.push(liveFundPoolSelectedCode);
+            }
+            const running = Array.isArray(runningCodes) ? runningCodes : [];
+            running.forEach(code => {
+                if (profileMap[code] !== undefined && !candidates.includes(code)) candidates.push(code);
+            });
+            keys.forEach(code => {
+                if (!candidates.includes(code)) candidates.push(code);
+            });
+            const normalizeProfile = (profile) => {
+                if (Array.isArray(profile)) {
+                    const ids = profile.map(x => String(x || '').trim()).filter(Boolean);
+                    return { ids, isAll: false };
+                }
+                const sid = String(profile || '').trim();
+                if (!sid || sid.toLowerCase() === 'all') {
+                    return { ids: allIds.slice(), isAll: true };
+                }
+                return { ids: [sid], isAll: false };
+            };
+            let resolved = null;
+            for (const code of candidates) {
+                const normalized = normalizeProfile(profileMap[code]);
+                const filtered = normalized.ids.filter(id => allowSet.has(id));
+                if (normalized.isAll) {
+                    resolved = allIds.slice();
+                    break;
+                }
+                if (filtered.length) {
+                    resolved = Array.from(new Set(filtered));
+                    break;
+                }
+            }
+            if (!Array.isArray(resolved) || !resolved.length) return false;
+            selectedStrategyIds = resolved;
+            pendingLiveStrategyProfiles = null;
+            syncStrategySelectionUI();
+            return true;
         }
 
         function updateStrategyList(strategies, preserveSelection = false) {
@@ -5725,9 +5785,15 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const data = await res.json();
                 liveEnabled = data.live_enabled !== false;
                 const runningCodes = Array.isArray(data.live_running_codes) ? data.live_running_codes : [];
+                const liveStrategyProfiles = (data.live_strategy_profiles && typeof data.live_strategy_profiles === 'object')
+                    ? data.live_strategy_profiles
+                    : {};
                 const liveRunningByStatus = Boolean(data.live_running || runningCodes.length > 0);
                 const liveByCabinet = Boolean(data.is_running && String(data.active_cabinet_type || '').toLowerCase().includes('live'));
                 liveRunning = (liveRunningByStatus || liveByCabinet);
+                if (liveRunning) {
+                    applyLiveStrategyProfiles(liveStrategyProfiles, runningCodes);
+                }
                 if (liveRunning) liveActionPending = false;
                 const reportStatus = String(data.current_report_status || '').toLowerCase();
                 const statusReportId = String(data.current_report_id || '').trim();
@@ -5987,6 +6053,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                         .filter(row => String(row.id || '').trim());
                     latestStrategyScores = scoreMap;
                     updateStrategyList(strategies, preserveSelection);
+                    if (pendingLiveStrategyProfiles) {
+                        applyLiveStrategyProfiles(pendingLiveStrategyProfiles.profiles, pendingLiveStrategyProfiles.runningCodes);
+                    }
                     return;
                 }
             } catch (_) {}
@@ -5995,6 +6064,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 const data = await res.json();
                 if (data && data.status === 'success' && Array.isArray(data.strategies) && data.strategies.length) {
                     updateStrategyList(data.strategies, preserveSelection);
+                    if (pendingLiveStrategyProfiles) {
+                        applyLiveStrategyProfiles(pendingLiveStrategyProfiles.profiles, pendingLiveStrategyProfiles.runningCodes);
+                    }
                     return;
                 }
             } catch (_) {}

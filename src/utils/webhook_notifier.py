@@ -215,6 +215,8 @@ class WebhookNotifier:
         et = str(event_type or "").strip()
         if et == "daily_summary":
             return True
+        if et == "system":
+            return True
         if et != "trade_exec":
             return False
         if not isinstance(data, dict):

@@ -12,6 +12,10 @@ class ConfigLoader:
         "data_provider.strategy_llm_api_key",
         "data_provider.api_key",
         "data_provider.mysql_password",
+        "data_provider.postgres_password",
+        "data_provider.default_api_url",
+        "webhook_notification.feishu_webhook_url",
+        "webhook_notification.feishu_secret",
     }
     _default_private_passthrough_paths = {
         "targets",
@@ -110,6 +114,46 @@ class ConfigLoader:
             cur = nxt
         cur[keys[-1]] = value
 
+    def _delete_path_value(self, payload, path):
+        if not isinstance(payload, dict):
+            return
+        keys = str(path).split('.')
+        chain = []
+        cur = payload
+        for key in keys:
+            if not isinstance(cur, dict) or key not in cur:
+                return
+            chain.append((cur, key))
+            cur = cur.get(key)
+        parent, last_key = chain[-1]
+        parent.pop(last_key, None)
+        for parent, key in reversed(chain[:-1]):
+            child = parent.get(key)
+            if isinstance(child, dict) and not child:
+                parent.pop(key, None)
+            else:
+                break
+
+    def _project_root(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.dirname(os.path.dirname(base_dir))
+
+    def _private_config_path(self, payload=None):
+        override = str(os.environ.get("CONFIG_PRIVATE_PATH", "") or "").strip()
+        if override:
+            return override
+        cfg_override = str(self._get_path_value(payload or {}, "system.private_config_path", "") or "").strip()
+        if cfg_override:
+            return cfg_override if os.path.isabs(cfg_override) else os.path.join(self._project_root(), cfg_override)
+        return os.path.join(self._project_root(), "config.private.json")
+
+    def _write_json_file(self, file_path, payload):
+        folder = os.path.dirname(file_path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
     @classmethod
     def resolve_private_override_paths(cls, payload=None):
         env_value = str(os.environ.get("CONFIG_PRIVATE_OVERRIDE_PATHS", "") or "").strip()
@@ -183,9 +227,62 @@ class ConfigLoader:
         return json.loads(json.dumps(self._config, ensure_ascii=False))
 
     def save(self, config_path="config.json"):
-        if not os.path.exists(config_path):
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(os.path.dirname(base_dir))
-            config_path = os.path.join(project_root, "config.json")
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(self._config, f, ensure_ascii=False, indent=2)
+        project_root = self._project_root()
+        target_path = config_path if os.path.isabs(config_path) else os.path.join(project_root, config_path)
+        full_cfg = self.to_dict()
+        secret_paths = self.resolve_private_override_paths(full_cfg)
+        private_only_paths = set(self._default_private_passthrough_paths)
+
+        public_cfg = json.loads(json.dumps(full_cfg, ensure_ascii=False))
+        for path in secret_paths:
+            if self._path_exists(public_cfg, path):
+                self._set_path_value(public_cfg, path, "")
+        for path in private_only_paths:
+            if self._path_exists(public_cfg, path):
+                cur_val = self._get_path_value(public_cfg, path, None)
+                if isinstance(cur_val, list):
+                    self._set_path_value(public_cfg, path, [])
+                else:
+                    self._delete_path_value(public_cfg, path)
+
+        self._write_json_file(target_path, public_cfg)
+
+        private_path = self._private_config_path(full_cfg)
+        private_cfg = self._load_json_config(private_path, silent=True)
+        if not isinstance(private_cfg, dict):
+            private_cfg = {}
+        private_exists = os.path.exists(private_path)
+        private_changed = False
+
+        for path in secret_paths:
+            val = self._get_path_value(full_cfg, path, "")
+            text = str(val or "")
+            old_val = self._get_path_value(private_cfg, path, "")
+            if not text.strip():
+                if self._path_exists(private_cfg, path):
+                    self._delete_path_value(private_cfg, path)
+                    private_changed = True
+                continue
+            if str(old_val) != text:
+                self._set_path_value(private_cfg, path, text)
+                private_changed = True
+
+        for path in private_only_paths:
+            val = self._get_path_value(full_cfg, path, None)
+            old_val = self._get_path_value(private_cfg, path, None)
+            if isinstance(val, list) and not val:
+                if self._path_exists(private_cfg, path):
+                    self._delete_path_value(private_cfg, path)
+                    private_changed = True
+                continue
+            if val is None:
+                if self._path_exists(private_cfg, path):
+                    self._delete_path_value(private_cfg, path)
+                    private_changed = True
+                continue
+            if old_val != val:
+                self._set_path_value(private_cfg, path, val)
+                private_changed = True
+
+        if private_changed or private_exists:
+            self._write_json_file(private_path, private_cfg)
