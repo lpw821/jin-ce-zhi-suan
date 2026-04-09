@@ -2,13 +2,21 @@ import argparse
 import csv
 import json
 import multiprocessing
+import os
 import queue
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.blk_loader import parse_blk_file
 
 
 任务列定义 = [
@@ -247,6 +255,17 @@ def 解析布尔(v: str) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "y", "是", "启用"}
 
 
+def 规范股票代码(code: str) -> str:
+    c = str(code or "").strip().upper()
+    if not c:
+        return ""
+    if c.endswith(".SH") or c.endswith(".SZ"):
+        return c
+    if len(c) == 6 and c.isdigit():
+        return f"{c}.SH" if c.startswith("6") else f"{c}.SZ"
+    return c
+
+
 def 归一状态(v: str) -> str:
     raw = str(v or "").strip().lower()
     return 状态别名.get(raw, raw)
@@ -316,6 +335,132 @@ def 追加CSV(path: Path, 列定义: List[Tuple[str, str]], row: Dict[str, Any])
         w.writerow(payload)
 
 
+def 读取BLK股票列表(path: Path, encoding: str) -> List[str]:
+    if not path.exists():
+        return []
+    payload = parse_blk_file(str(path), encoding=str(encoding or "auto"))
+    out: List[str] = []
+    seen = set()
+    for raw_code in payload.get("codes", []):
+        code = 规范股票代码(raw_code)
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def 导入BLK到标的池(
+    标的池路径: Path,
+    blk_path: Path,
+    blk_encoding: str,
+    导入模式: str,
+    market_tag: str,
+    industry_tag: str,
+    size_tag: str,
+    enabled: str,
+) -> Tuple[int, int, int]:
+    当前标的池 = 读取CSV(标的池路径, 标的池列定义, 标的池英文别名)
+    blk_codes = 读取BLK股票列表(blk_path, blk_encoding)
+    if str(导入模式).strip().lower() == "replace":
+        base_rows: List[Dict[str, Any]] = []
+    else:
+        base_rows = list(当前标的池)
+    现有代码 = {str(x.get("stock_code", "")).strip().upper() for x in base_rows if str(x.get("stock_code", "")).strip()}
+    新增 = 0
+    覆盖更新 = 0
+    for code in blk_codes:
+        if code in 现有代码:
+            for row in base_rows:
+                if str(row.get("stock_code", "")).strip().upper() == code:
+                    row["market_tag"] = str(market_tag or row.get("market_tag", "")).strip()
+                    row["industry_tag"] = str(industry_tag or row.get("industry_tag", "")).strip()
+                    row["size_tag"] = str(size_tag or row.get("size_tag", "")).strip()
+                    row["enabled"] = "1" if 解析布尔(enabled) else "0"
+                    覆盖更新 += 1
+                    break
+            continue
+        base_rows.append(
+            {
+                "stock_code": code,
+                "market_tag": str(market_tag or "").strip(),
+                "industry_tag": str(industry_tag or "").strip(),
+                "size_tag": str(size_tag or "").strip(),
+                "enabled": "1" if 解析布尔(enabled) else "0",
+            }
+        )
+        现有代码.add(code)
+        新增 += 1
+    写入CSV(标的池路径, 标的池列定义, base_rows)
+    return len(blk_codes), 新增, 覆盖更新
+
+
+def 读取公式包策略ID(path: Path) -> List[str]:
+    if not path.exists():
+        return []
+    text = path.read_text(encoding="utf-8")
+    payload = json.loads(text)
+    out: List[str] = []
+    seen = set()
+    if isinstance(payload, list):
+        for item in payload:
+            sid = ""
+            if isinstance(item, str):
+                sid = item
+            elif isinstance(item, dict):
+                sid = str(item.get("strategy_id", "")).strip()
+            sid = str(sid or "").strip()
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            out.append(sid)
+    elif isinstance(payload, dict):
+        rows = payload.get("strategies")
+        if isinstance(rows, list):
+            for item in rows:
+                if isinstance(item, str):
+                    sid = str(item).strip()
+                elif isinstance(item, dict):
+                    sid = str(item.get("strategy_id", "")).strip()
+                else:
+                    sid = ""
+                if not sid or sid in seen:
+                    continue
+                seen.add(sid)
+                out.append(sid)
+    return out
+
+
+def 导入公式包到策略池(
+    策略池路径: Path,
+    公式包路径: Path,
+    导入模式: str,
+    enabled: str,
+) -> Tuple[int, int, int]:
+    当前策略池 = 读取CSV(策略池路径, 策略池列定义, 策略池英文别名)
+    formula_ids = 读取公式包策略ID(公式包路径)
+    if str(导入模式).strip().lower() == "replace":
+        base_rows: List[Dict[str, Any]] = []
+    else:
+        base_rows = list(当前策略池)
+    现有策略 = {str(x.get("strategy_id", "")).strip() for x in base_rows if str(x.get("strategy_id", "")).strip()}
+    新增 = 0
+    覆盖更新 = 0
+    for sid in formula_ids:
+        if sid in 现有策略:
+            for row in base_rows:
+                if str(row.get("strategy_id", "")).strip() == sid:
+                    row["enabled"] = "1" if 解析布尔(enabled) else "0"
+                    覆盖更新 += 1
+                    break
+            continue
+        base_rows.append({"strategy_id": sid, "enabled": "1" if 解析布尔(enabled) else "0"})
+        现有策略.add(sid)
+        新增 += 1
+    写入CSV(策略池路径, 策略池列定义, base_rows)
+    return len(formula_ids), 新增, 覆盖更新
+
+
 def http_json(base_url: str, method: str, path: str, body: Dict[str, Any] = None, timeout: int = 30) -> Dict[str, Any]:
     url = f"{base_url.rstrip('/')}{path}"
     data = None
@@ -346,11 +491,55 @@ def 安全请求(base_url: str, method: str, path: str, body: Dict[str, Any] = N
         return False, {}, str(e)
 
 
-def 待执行任务(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def 解析批次过滤(text: str) -> List[str]:
+    parts = [x.strip() for x in str(text or "").replace("，", ",").split(",") if x.strip()]
+    uniq: List[str] = []
+    seen = set()
+    for p in parts:
+        u = p.upper()
+        if u in seen:
+            continue
+        seen.add(u)
+        uniq.append(u)
+    return uniq
+
+
+def 是否完成状态(status: Any) -> bool:
+    st = 归一状态(status)
+    return st in {"success", "failed", "cancelled", "done", "completed"}
+
+
+def 归档已完成任务(tasks_rows: List[Dict[str, Any]], archive_path: Path) -> Tuple[List[Dict[str, Any]], int]:
+    done_rows = [x for x in tasks_rows if 是否完成状态(x.get("status", ""))]
+    remain_rows = [x for x in tasks_rows if not 是否完成状态(x.get("status", ""))]
+    if not done_rows:
+        return tasks_rows, 0
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    旧归档 = 读取CSV(archive_path, 任务列定义, 任务英文别名)
+    归档映射 = {str(x.get("task_id", "")).strip(): x for x in 旧归档}
+    for row in done_rows:
+        tid = str(row.get("task_id", "")).strip()
+        if tid:
+            归档映射[tid] = row
+    merged = sorted(
+        [x for x in 归档映射.values() if str(x.get("task_id", "")).strip()],
+        key=lambda x: 提取任务序号(str(x.get("task_id", ""))),
+    )
+    写入CSV(archive_path, 任务列定义, merged)
+    return remain_rows, len(done_rows)
+
+
+def 待执行任务(rows: List[Dict[str, Any]], batch_filters: List[str]) -> List[Dict[str, Any]]:
     out = []
+    use_batch_filter = len(batch_filters) > 0
+    batch_set = set([x.upper() for x in batch_filters])
     for r in rows:
         if not 解析布尔(r.get("enabled", "1")):
             continue
+        if use_batch_filter:
+            bn = str(r.get("batch_no", "")).strip().upper()
+            if bn not in batch_set:
+                continue
         st = 归一状态(r.get("status", "pending"))
         if st in {"pending", "retry"}:
             out.append(r)
@@ -561,6 +750,7 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
             "start": start_date,
             "end": end_date,
             "capital": capital,
+            "realtime_push": False,
         }
         print(f"[START] task={task_id} attempt={attempts} base_url={base_url} payload={payload}")
         ok, start_resp, start_err = 安全请求(base_url, "POST", "/api/control/start_backtest", body=payload, timeout=30)
@@ -1210,12 +1400,43 @@ def run(args: argparse.Namespace) -> int:
     标的池路径 = Path(args.generator_stocks_csv).resolve()
     区间池路径 = Path(args.generator_windows_csv).resolve()
     场景池路径 = Path(args.generator_scenarios_csv).resolve()
+    has_import_ops = False
     if args.init_generator_templates:
         初始化任务生成模板(策略池路径, 标的池路径, 区间池路径, 场景池路径)
         print(f"策略池模板: {策略池路径}")
         print(f"标的池模板: {标的池路径}")
         print(f"区间池模板: {区间池路径}")
         print(f"场景池模板: {场景池路径}")
+        return 0
+    if str(args.blk_file or "").strip():
+        has_import_ops = True
+        blk_path = Path(str(args.blk_file).strip()).resolve()
+        总数, 新增, 覆盖更新 = 导入BLK到标的池(
+            标的池路径=标的池路径,
+            blk_path=blk_path,
+            blk_encoding=args.blk_encoding,
+            导入模式=args.blk_import_mode,
+            market_tag=args.blk_market_tag,
+            industry_tag=args.blk_industry_tag,
+            size_tag=args.blk_size_tag,
+            enabled=args.blk_enabled,
+        )
+        print(f"BLK导入完成: {blk_path}")
+        print(f"BLK代码总数: {总数} 新增: {新增} 覆盖更新: {覆盖更新}")
+        print(f"标的池文件: {标的池路径}")
+    if str(args.formula_pack_json or "").strip():
+        has_import_ops = True
+        formula_path = Path(str(args.formula_pack_json).strip()).resolve()
+        总数, 新增, 覆盖更新 = 导入公式包到策略池(
+            策略池路径=策略池路径,
+            公式包路径=formula_path,
+            导入模式=args.formula_pack_import_mode,
+            enabled=args.formula_pack_enabled,
+        )
+        print(f"公式包导入完成: {formula_path}")
+        print(f"策略总数: {总数} 新增: {新增} 覆盖更新: {覆盖更新}")
+        print(f"策略池文件: {策略池路径}")
+    if has_import_ops and (not args.run_after_import) and (not args.generate_tasks) and (not args.coverage_check) and (not args.coverage_hard_gate):
         return 0
     if args.init_template:
         初始化模板(tasks_path)
@@ -1268,7 +1489,16 @@ def run(args: argparse.Namespace) -> int:
     if not tasks_rows:
         print(f"未找到任务或任务为空: {tasks_path}")
         return 1
-    candidates = 待执行任务(tasks_rows)
+    if bool(args.archive_completed):
+        archive_path = Path(str(args.archive_tasks_csv or "data/批量回测任务.archive.csv")).resolve()
+        tasks_rows, archived_count = 归档已完成任务(tasks_rows, archive_path)
+        if archived_count > 0:
+            写入CSV(tasks_path, 任务列定义, tasks_rows)
+            print(f"已归档完成任务: {archived_count} -> {archive_path}")
+    batch_filters = 解析批次过滤(args.batch_no_filter)
+    if batch_filters:
+        print(f"批次过滤: {','.join(batch_filters)}")
+    candidates = 待执行任务(tasks_rows, batch_filters)
     if args.max_tasks > 0:
         candidates = candidates[: args.max_tasks]
     if not candidates:
@@ -1300,6 +1530,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-wait-seconds", type=int, default=7200, help="单任务最长等待秒")
     p.add_argument("--retry-sleep-seconds", type=int, default=3, help="重试前等待秒")
     p.add_argument("--max-tasks", type=int, default=0, help="最多执行N个任务，0表示不限制")
+    p.add_argument("--batch-no-filter", default="", help="仅执行指定批次号，逗号分隔（如 BULL,BEAR）")
+    p.add_argument("--archive-completed", action="store_true", help="执行前自动归档已完成任务并从任务文件移除")
+    p.add_argument("--archive-tasks-csv", default="data/批量回测任务.archive.csv", help="归档任务CSV路径")
     p.add_argument("--parallel-workers", type=int, default=1, help="并发进程数")
     p.add_argument("--rate-limit-interval-seconds", type=float, default=0.0, help="每个进程启动任务的最小间隔秒")
     p.add_argument("--init-generator-templates", action="store_true", help="生成任务生成器的输入模板后退出")
@@ -1307,6 +1540,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--generator-stocks-csv", default="data/任务生成_标的池.csv", help="标的池CSV路径")
     p.add_argument("--generator-windows-csv", default="data/任务生成_区间池.csv", help="区间池CSV路径")
     p.add_argument("--generator-scenarios-csv", default="data/任务生成_场景池.csv", help="场景池CSV路径")
+    p.add_argument("--blk-file", default="", help="BLK板块文件路径，导入到标的池")
+    p.add_argument("--blk-encoding", default="auto", help="BLK编码（auto/gbk/utf-8）")
+    p.add_argument("--blk-import-mode", default="append", choices=["append", "replace"], help="BLK导入模式")
+    p.add_argument("--blk-market-tag", default="主板", help="BLK导入默认市场标签")
+    p.add_argument("--blk-industry-tag", default="BLK导入", help="BLK导入默认行业标签")
+    p.add_argument("--blk-size-tag", default="未知", help="BLK导入默认市值标签")
+    p.add_argument("--blk-enabled", default="1", help="BLK导入后是否启用（1/0）")
+    p.add_argument("--formula-pack-json", default="", help="公式包JSON路径（列表元素可为策略ID字符串或{strategy_id}对象）")
+    p.add_argument("--formula-pack-import-mode", default="append", choices=["append", "replace"], help="公式包导入策略池模式")
+    p.add_argument("--formula-pack-enabled", default="1", help="公式包导入后策略是否启用（1/0）")
+    p.add_argument("--run-after-import", action="store_true", help="执行导入后继续后续流程（生成任务/覆盖率/回测）")
     p.add_argument("--generate-tasks", action="store_true", help="按策略池/标的池/区间池/场景池自动生成任务")
     p.add_argument("--generate-mode", default="append", choices=["append", "replace"], help="任务生成模式")
     p.add_argument("--generate-max-tasks", type=int, default=0, help="生成任务上限，0表示不限制")

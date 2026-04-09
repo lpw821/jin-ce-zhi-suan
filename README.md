@@ -20,6 +20,7 @@
 - [架构设计](#架构设计)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
+- [新增能力快速上手（TDX/BLK/组合回测）](#新增能力快速上手tdxblk组合回测)
 - [数据准备](#数据准备)
 - [数据源与使用条件](#数据源与使用条件)
 - [全局回测与实盘监控模板](#全局回测与实盘监控模板)
@@ -240,6 +241,49 @@ python server.py
 前台配置中心可以进行具体的配置
 
 ![](C:\Users\scott\AppData\Roaming\marktext\images\2026-03-23-22-16-35-image.png)
+
+## 新增能力快速上手（TDX/BLK/组合回测）
+
+本仓库已新增以下能力：
+
+- 通达信公式转换：`POST /api/tdx/compile`
+- 通达信公式一键入库：`POST /api/tdx/import_strategy`
+- BLK 文件解析：`POST /api/blk/parse`
+- 多策略组合回测：`/api/control/start_backtest` 支持 `combination_config`
+- 批量任务编排：`scripts/batch_backtest_runner.py` 支持 BLK 导入标的池、公式包导入策略池
+
+回测组合参数示例：
+
+```json
+{
+  "stock_code": "600036.SH",
+  "strategy_ids": ["01", "02", "03"],
+  "combination_config": {
+    "enabled": true,
+    "mode": "vote",
+    "weights": {"01": 2, "02": 1, "03": 1.5},
+    "min_agree_count": 2,
+    "tie_policy": "skip"
+  },
+  "start": "2024-01-01",
+  "end": "2024-12-31"
+}
+```
+
+批量脚本端到端示例：
+
+```bash
+python scripts/batch_backtest_runner.py ^
+  --blk-file "D:/data/demo.blk" ^
+  --formula-pack-json "D:/data/formula_pack.json" ^
+  --run-after-import ^
+  --generate-tasks --generate-mode replace --run-after-generate ^
+  --coverage-check --coverage-hard-gate --run-after-coverage-check
+```
+
+完整说明文档见：
+
+- [新功能说明_通达信_BLK_组合回测.md](./新功能说明_通达信_BLK_组合回测.md)
 
 ## 数据准备
 

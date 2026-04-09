@@ -251,17 +251,15 @@ class ConfigLoader:
         private_cfg = self._load_json_config(private_path, silent=True)
         if not isinstance(private_cfg, dict):
             private_cfg = {}
-        private_exists = os.path.exists(private_path)
         private_changed = False
 
         for path in secret_paths:
             val = self._get_path_value(full_cfg, path, "")
             text = str(val or "")
             old_val = self._get_path_value(private_cfg, path, "")
+            # Private config uses incremental upsert only.
+            # Empty public/masked values should not clear existing private values.
             if not text.strip():
-                if self._path_exists(private_cfg, path):
-                    self._delete_path_value(private_cfg, path)
-                    private_changed = True
                 continue
             if str(old_val) != text:
                 self._set_path_value(private_cfg, path, text)
@@ -270,19 +268,12 @@ class ConfigLoader:
         for path in private_only_paths:
             val = self._get_path_value(full_cfg, path, None)
             old_val = self._get_path_value(private_cfg, path, None)
-            if isinstance(val, list) and not val:
-                if self._path_exists(private_cfg, path):
-                    self._delete_path_value(private_cfg, path)
-                    private_changed = True
-                continue
             if val is None:
-                if self._path_exists(private_cfg, path):
-                    self._delete_path_value(private_cfg, path)
-                    private_changed = True
+                # Missing value means no update, not deletion.
                 continue
             if old_val != val:
                 self._set_path_value(private_cfg, path, val)
                 private_changed = True
 
-        if private_changed or private_exists:
+        if private_changed:
             self._write_json_file(private_path, private_cfg)

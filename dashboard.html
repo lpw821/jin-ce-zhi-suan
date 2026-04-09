@@ -305,11 +305,11 @@
                 <p>2. 因本工具产生的争议，适用中华人民共和国法律管辖。</p>
             </div>
             <label class="mt-8 flex items-start gap-3 cursor-pointer select-none">
-                <input id="disclaimer-agree-checkbox" type="checkbox" class="mt-1 w-4 h-4 accent-blue-500">
+                <input id="disclaimer-agree-checkbox" type="checkbox" class="mt-1 w-4 h-4 accent-blue-500" onchange="updateDisclaimerAccess()" onclick="updateDisclaimerAccess()">
                 <span class="text-white font-semibold">我已阅读并同意以上免责声明与用户使用协议，自愿承担全部风险</span>
             </label>
             <div class="text-xs text-slate-400 mt-2">（勾选后方可进入系统）</div>
-            <button id="disclaimer-enter-btn" type="button" class="mt-6 w-full bg-blue-600/50 text-white py-2.5 rounded-lg font-bold cursor-not-allowed opacity-60 transition-all" disabled>进入系统</button>
+            <button id="disclaimer-enter-btn" type="button" onclick="enterSystemByDisclaimer()" class="mt-6 w-full bg-blue-600/50 text-white py-2.5 rounded-lg font-bold cursor-not-allowed opacity-60 transition-all" disabled>进入系统</button>
         </div>
     </div>
 
@@ -935,8 +935,8 @@
     </main>
 
     <!-- Bottom Control Bar -->
-    <footer class="h-16 border-t border-slate-700 bg-trading-bg flex items-center justify-between px-4 z-20">
-        <div class="flex items-center gap-2">
+    <footer class="min-h-16 border-t border-slate-700 bg-trading-bg flex flex-col lg:flex-row lg:items-center justify-between px-3 lg:px-4 py-2 gap-2 z-20">
+        <div class="flex items-center gap-2 w-full lg:flex-1 min-w-0 overflow-x-auto whitespace-nowrap">
             <div class="relative">
                 <div class="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded border border-slate-600 focus-within:border-trading-blue focus-within:ring-1 focus-within:ring-trading-blue transition-all">
                     <span class="text-slate-400 text-xs"><i class="fa-solid fa-magnifying-glass"></i></span>
@@ -975,26 +975,27 @@
             </button>
         </div>
 
-        <div id="action-cluster" class="flex items-center gap-2">
+        <div id="action-cluster" class="flex items-center gap-2 w-full lg:w-auto min-w-0 overflow-x-auto whitespace-nowrap">
             <div id="live-status-wrap" class="hidden text-xs text-slate-500 font-mono whitespace-nowrap">系统状态：<span id="system-status-text" class="text-slate-300">待机</span></div>
-            <button id="live-toggle-btn" onclick="toggleLive()" class="hidden bg-trading-green hover:bg-emerald-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-emerald-500 hover:-translate-y-0.5 active:scale-95 min-w-[108px]">
+            <button id="live-toggle-btn" onclick="toggleLive()" class="hidden bg-trading-green hover:bg-emerald-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-emerald-500 hover:-translate-y-0.5 active:scale-95 min-w-[92px] lg:min-w-[108px]">
                 <i id="live-toggle-icon" class="fa-solid fa-satellite-dish"></i>
                 <span id="live-toggle-label">启动实盘</span>
             </button>
-            <button id="backtest-trigger-btn" onclick="startBacktest()" class="bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500 min-w-[108px]">
+            <button id="backtest-trigger-btn" onclick="startBacktest()" class="bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500 min-w-[92px] lg:min-w-[108px]">
                 <i id="backtest-trigger-icon" class="fa-solid fa-play"></i>
-                <span id="backtest-trigger-label">立即回测</span>
+                <span id="backtest-trigger-label">单票回测</span>
             </button>
-            <div id="action-secondary-inline" class="flex items-center gap-2 flex-nowrap">
-                <button id="pattern-picker-btn" onclick="openPatternPicker()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-slate-500 min-w-[108px]">
+            <div id="action-secondary-inline" class="flex items-center gap-2 flex-nowrap shrink-0">
+                <button id="ops-hub-btn" onclick="openOpsHubModal()" class="bg-fuchsia-700 hover:bg-fuchsia-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-fuchsia-500 min-w-[92px] lg:min-w-[108px]">
+                    <i class="fa-solid fa-layer-group"></i>
+                    <span>操作工作台</span>
+                </button>
+                <button id="pattern-picker-btn" onclick="openPatternPicker()" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-slate-500 min-w-[92px] lg:min-w-[108px]">
                     <i class="fa-solid fa-table-cells-large"></i>
                     <span>经典形态</span>
                 </button>
-                <button onclick="openConfigCenter()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-purple-500 min-w-[108px]">
+                <button onclick="openConfigCenter()" class="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-purple-500 min-w-[92px] lg:min-w-[108px]">
                     <i class="fa-solid fa-sliders"></i> 配置中心
-                </button>
-                <button id="webhook-retry-btn" onclick="openWebhookRetryCenter()" class="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-amber-500 min-w-[108px]">
-                    <i class="fa-solid fa-bell"></i> 推送补偿
                 </button>
             </div>
             <div id="action-more-wrap" class="relative hidden">
@@ -1005,11 +1006,84 @@
                 <div id="action-more-menu" class="hidden absolute right-0 bottom-12 w-40 bg-slate-900 border border-slate-700 rounded shadow-2xl p-1.5 space-y-1 z-[130]">
                     <button id="pattern-picker-menu-btn" onclick="openPatternPicker(); closeActionMoreMenu();" class="w-full text-left bg-slate-800 hover:bg-slate-700 text-white px-2 py-1.5 rounded text-xs border border-slate-700"><i class="fa-solid fa-table-cells-large mr-1"></i>经典形态</button>
                     <button onclick="openConfigCenter(); closeActionMoreMenu();" class="w-full text-left bg-purple-800 hover:bg-purple-700 text-white px-2 py-1.5 rounded text-xs border border-purple-700"><i class="fa-solid fa-sliders mr-1"></i>配置中心</button>
-                    <button id="webhook-retry-menu-btn" onclick="openWebhookRetryCenter(); closeActionMoreMenu();" class="w-full text-left bg-amber-800 hover:bg-amber-700 text-white px-2 py-1.5 rounded text-xs border border-amber-700"><i class="fa-solid fa-bell mr-1"></i>推送补偿</button>
+                    <button onclick="openOpsHubModal(); closeActionMoreMenu();" class="w-full text-left bg-fuchsia-800 hover:bg-fuchsia-700 text-white px-2 py-1.5 rounded text-xs border border-fuchsia-700"><i class="fa-solid fa-layer-group mr-1"></i>操作工作台</button>
                 </div>
             </div>
         </div>
     </footer>
+    <div class="px-4 pb-2 text-[11px] text-slate-500 border-t border-slate-800 bg-trading-bg">
+        模式说明：底部“单票回测”=当前股票/策略/时间即时回测；批量任务相关功能统一在“操作工作台”中。
+    </div>
+    <div id="ops-hub-backdrop" class="hidden fixed inset-0 bg-black/30 z-[189]" onclick="closeOpsHubModal()"></div>
+    <div id="ops-hub-drawer" class="fixed top-0 right-0 h-full w-[380px] max-w-[92vw] bg-slate-900 border-l border-slate-700 shadow-2xl z-[190] transform translate-x-full opacity-0 pointer-events-none transition-all duration-200">
+        <div class="h-full flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-layer-group mr-2 text-fuchsia-400"></i>操作抽屉</div>
+                <div class="flex items-center gap-3">
+                    <button id="ops-hub-pin-btn" onclick="toggleOpsHubPinned()" class="w-8 h-8 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:border-fuchsia-500 transition-all" title="固定右侧工具栏">
+                        <i class="fa-solid fa-thumbtack"></i>
+                    </button>
+                    <span class="w-px h-5 bg-slate-700"></span>
+                    <button onclick="closeOpsHubModal()" class="w-8 h-8 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:border-rose-500 transition-all" title="关闭抽屉">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">在这里直接切换功能，系统会自动关闭当前功能并打开目标功能。</div>
+            <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                <div class="border border-slate-700 rounded">
+                    <button onclick="toggleOpsHubSection('ops-backtest-body')" class="w-full px-3 py-2 text-left text-sm text-cyan-200 bg-slate-800 hover:bg-slate-700">回测组合参数</button>
+                    <div id="ops-backtest-body" class="p-3 space-y-2">
+                        <div class="text-[11px] text-slate-500">用于多策略组合决策。单策略时建议保持 OR。</div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <label class="text-xs text-slate-300">组合模式
+                                <select id="bt-combo-mode" class="mt-1 w-full bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-xs">
+                                    <option value="or" selected>任一满足（OR）</option>
+                                    <option value="and">全部满足（AND）</option>
+                                    <option value="vote">投票模式（VOTE）</option>
+                                </select>
+                            </label>
+                            <label class="text-xs text-slate-300">最小同向数
+                                <input id="bt-combo-min-agree" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+                            </label>
+                            <label class="text-xs text-slate-300">平票策略
+                                <select id="bt-combo-tie-policy" class="mt-1 w-full bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-xs">
+                                    <option value="skip" selected>跳过信号</option>
+                                    <option value="buy">按买入处理</option>
+                                    <option value="sell">按卖出处理</option>
+                                </select>
+                            </label>
+                        </div>
+                        <label class="text-xs text-slate-300 block">权重（示例：01=2,02=1）
+                            <input id="bt-combo-weights" type="text" placeholder="01=2,02=1" class="mt-1 w-full bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+                        </label>
+                    </div>
+                </div>
+                <div class="border border-slate-700 rounded">
+                    <button onclick="toggleOpsHubSection('ops-tools-body')" class="w-full px-3 py-2 text-left text-sm text-indigo-200 bg-slate-800 hover:bg-slate-700">策略与板块工具</button>
+                    <div id="ops-tools-body" class="p-3 space-y-2">
+                        <div class="text-[11px] text-slate-500">公式转换、BLK导入、批量看板都放这里，避免底栏堆太多按钮。</div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button onclick="openFeatureFromHub('tdx')" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded text-xs border border-indigo-500">公式工具</button>
+                            <button onclick="openFeatureFromHub('blk')" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-2 rounded text-xs border border-cyan-500">BLK导入</button>
+                            <button onclick="openFeatureFromHub('batch')" class="bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 rounded text-xs border border-sky-500">批量看板</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="border border-slate-700 rounded">
+                    <button onclick="toggleOpsHubSection('ops-system-body')" class="w-full px-3 py-2 text-left text-sm text-amber-200 bg-slate-800 hover:bg-slate-700">系统与辅助操作</button>
+                    <div id="ops-system-body" class="p-3 space-y-2">
+                        <div class="text-[11px] text-slate-500">低频系统操作统一收纳，减少主界面干扰。</div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button onclick="openFeatureFromHub('config')" class="bg-purple-700 hover:bg-purple-600 text-white px-3 py-2 rounded text-xs border border-purple-500">配置中心</button>
+                            <button onclick="openFeatureFromHub('webhook')" class="bg-amber-700 hover:bg-amber-600 text-white px-3 py-2 rounded text-xs border border-amber-500">推送补偿</button>
+                            <button onclick="openFeatureFromHub('pattern')" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-xs border border-slate-500">经典形态</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div id="pattern-picker-modal" class="hidden fixed inset-0 bg-black/70 z-[155] flex items-center justify-center p-5">
         <div class="w-[1450px] max-w-[98vw] h-[86vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
@@ -1037,6 +1111,352 @@
                     <button onclick="loadConfigCenter()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-xs border border-slate-600">重新加载</button>
                     <button onclick="saveConfigCenter()" class="bg-purple-700 hover:bg-purple-600 text-white px-3 py-2 rounded text-xs border border-purple-500">保存并生效</button>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="tdx-tools-modal" class="hidden fixed inset-0 bg-black/70 z-[146] flex items-center justify-center p-6">
+        <div class="w-[980px] max-w-[96vw] h-[78vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-code mr-2 text-indigo-400"></i>通达信公式工具</div>
+                <button onclick="closeTdxToolsModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">支持编译预览与一键导入策略库</div>
+            <div class="flex-1 p-4 overflow-y-auto space-y-3">
+                <div class="text-[11px] text-slate-500">操作建议：先点“编译预览”确认无报错，再点“一键导入策略”；导入成功后可直接在回测策略列表勾选。</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <input id="tdx-strategy-id" type="text" placeholder="策略ID（留空自动生成）" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 font-mono" />
+                    <input id="tdx-strategy-name" type="text" placeholder="策略名称" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100" />
+                    <select id="tdx-kline-type" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 font-mono">
+                        <option value="1min">1min</option>
+                        <option value="5min">5min</option>
+                        <option value="15min">15min</option>
+                        <option value="30min">30min</option>
+                        <option value="60min">60min</option>
+                        <option value="D">D(日线)</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] md:items-start gap-2">
+                    <textarea id="tdx-formula-prompt" placeholder="用自然语言描述公式需求，例如：5分钟金叉且放量突破" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 min-h-[72px] max-h-56 resize-y"></textarea>
+                    <button onclick="generateTdxFormulaByLlm()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-2 rounded text-xs border border-cyan-500 md:self-start"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>大模型生成公式</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+                    <select id="tdx-prompt-template" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100">
+                        <option value="">模板快捷选项</option>
+                        <option value="ma_cross">均线金叉</option>
+                        <option value="volume_breakout">放量突破</option>
+                        <option value="macd_divergence">MACD背离</option>
+                        <option value="rsi_reversal">RSI反转</option>
+                    </select>
+                    <button onclick="applyTdxPromptTemplate()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-xs border border-slate-500">一键填充需求词</button>
+                </div>
+                <textarea id="tdx-formula-text" class="w-full h-44 bg-slate-950 border border-slate-700 rounded p-3 text-xs text-slate-100 font-mono" placeholder="输入通达信公式，例如:&#10;MA5:=MA(C,5);&#10;MA10:=MA(C,10);&#10;CROSS(MA5,MA10)"></textarea>
+                <div class="flex items-center gap-2">
+                    <button onclick="compileTdxFormula()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded text-xs border border-indigo-500">编译预览</button>
+                    <button onclick="importTdxFormulaStrategy()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded text-xs border border-emerald-500">一键导入策略</button>
+                    <span id="tdx-tools-status" class="text-xs text-slate-400">待操作</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="bg-slate-950 border border-slate-700 rounded p-3">
+                        <div class="text-xs text-slate-400 mb-2">编译信息</div>
+                        <pre id="tdx-compile-meta" class="text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words">--</pre>
+                    </div>
+                    <div class="bg-slate-950 border border-slate-700 rounded p-3">
+                        <div class="text-xs text-slate-400 mb-2">生成代码（预览）</div>
+                        <pre id="tdx-compile-code" class="h-56 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words">--</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="blk-tools-modal" class="hidden fixed inset-0 bg-black/70 z-[146] flex items-center justify-center p-6">
+        <div class="w-[980px] max-w-[96vw] h-[78vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-layer-group mr-2 text-cyan-400"></i>BLK 批量任务工具</div>
+                <button onclick="closeBlkToolsModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">支持上传 BLK、解析预览、写入标的池并生成批量任务（不触发单票回测）</div>
+            <div class="flex-1 p-4 overflow-y-auto space-y-3">
+                <div class="text-[11px] text-slate-500">模式区分：这里是批量任务链路；底部蓝色按钮是单票回测链路。操作建议：先“解析预览”确认数量，再“写入标的池”；最后点“一键生成任务”。</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input id="blk-file-path" type="text" placeholder="或填服务端可访问的 BLK 文件路径" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 font-mono" />
+                    <input id="blk-stock-pool-csv" type="text" value="data/任务生成_标的池.csv" placeholder="标的池CSV路径" class="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 font-mono" />
+                </div>
+                <div class="flex items-center gap-3 text-xs text-slate-300">
+                    <label class="flex items-center gap-2"><span>本地上传:</span><input id="blk-file-input" type="file" accept=".blk,.txt" class="text-xs" /></label>
+                    <label class="flex items-center gap-2"><span>编码</span><input id="blk-encoding" type="text" value="auto" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-20 font-mono" /></label>
+                    <label class="flex items-center gap-2"><span>标的池写入模式</span><select id="blk-import-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-1"><option value="append">追加（append）</option><option value="replace">重建（replace）</option></select></label>
+                    <label class="flex items-center gap-2"><input id="blk-normalize-symbol" type="checkbox" checked />规范代码</label>
+                </div>
+                <div class="text-[11px] text-slate-500">标的池写入模式说明：追加=保留原标的并增量写入；重建=清空原标的池后重写。</div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <input id="blk-market-tag" type="text" value="主板" placeholder="市场标签" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100" />
+                    <input id="blk-industry-tag" type="text" value="BLK导入" placeholder="行业标签" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100" />
+                    <input id="blk-size-tag" type="text" value="未知" placeholder="市值标签" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100" />
+                    <label class="flex items-center gap-2 text-xs text-slate-300 bg-slate-800 border border-slate-700 rounded px-2 py-1"><input id="blk-enabled" type="checkbox" checked />导入后启用</label>
+                </div>
+                <textarea id="blk-content-text" class="w-full h-40 bg-slate-950 border border-slate-700 rounded p-3 text-xs text-slate-100 font-mono" placeholder="可直接粘贴BLK内容（若已上传或填了文件路径可留空）"></textarea>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                    <label class="text-xs text-slate-300 flex items-center gap-2">任务模式
+                        <select id="blk-generate-mode" class="bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                            <option value="append">追加生成（append）</option>
+                            <option value="replace">覆盖重建（replace）</option>
+                        </select>
+                    </label>
+                    <label class="text-xs text-slate-300 flex items-center gap-2">最大任务
+                        <input id="blk-generate-max-tasks" type="number" min="0" value="0" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-24 font-mono" />
+                    </label>
+                    <label class="text-xs text-slate-300 flex items-center gap-2">任务CSV
+                        <input id="blk-tasks-csv" type="text" value="data/batch_tasks/批量回测任务.csv" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-full font-mono" />
+                    </label>
+                    <label class="text-xs text-slate-300 flex items-center gap-2">策略池CSV
+                        <input id="blk-strategies-csv" type="text" value="data/任务生成_策略池.csv" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-full font-mono" />
+                    </label>
+                </div>
+                <div class="text-[11px] text-slate-500">任务模式说明：追加生成=向任务CSV追加新任务并按规则去重；覆盖重建=丢弃旧任务，仅保留本次生成结果。</div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-300">
+                    <label class="flex items-center gap-2"><input id="blk-auto-new-task-file" type="checkbox" checked />每次生成自动创建新任务文件</label>
+                    <label class="flex items-center gap-2">任务文件名前缀
+                        <input id="blk-task-file-prefix" type="text" value="" placeholder="如 策略A_" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 w-40 font-mono" />
+                    </label>
+                    <label class="flex items-center gap-2">策略来源
+                        <select id="blk-strategy-source-mode" onchange="toggleBlkStrategySourceUi()" class="bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                            <option value="selected">主界面已选策略</option>
+                            <option value="all_enabled">全部启用策略</option>
+                            <option value="manual_pick">手动勾选策略</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="blk-manual-strategy-wrap" class="hidden bg-slate-900 border border-slate-700 rounded p-2">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-[11px] text-slate-300">手动勾选策略（多选）</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="selectAllBlkManualStrategies(true)" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">全选</button>
+                            <button onclick="selectAllBlkManualStrategies(false)" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">清空</button>
+                            <button onclick="loadBlkStrategyCatalog()" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">刷新策略列表</button>
+                        </div>
+                    </div>
+                    <div id="blk-manual-strategy-select" class="w-full h-36 overflow-auto bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 font-mono space-y-1"></div>
+                    <div class="text-[11px] text-slate-500 mt-1">已改为复选框勾选，无需 Ctrl。</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="parseBlkPreview()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-2 rounded text-xs border border-cyan-500">解析预览</button>
+                    <button onclick="importBlkToStockPool()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded text-xs border border-emerald-500">写入标的池</button>
+                    <button onclick="syncBatchStrategyPoolFromUi()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded text-xs border border-indigo-500">同步策略池</button>
+                    <button onclick="generateBatchTasksQuick()" class="bg-violet-700 hover:bg-violet-600 text-white px-3 py-2 rounded text-xs border border-violet-500">一键生成任务</button>
+                    <span id="blk-tools-status" class="text-xs text-slate-400">待操作</span>
+                </div>
+                <div class="bg-slate-950 border border-slate-700 rounded p-3">
+                    <div class="text-xs text-slate-400 mb-2">解析结果</div>
+                    <pre id="blk-parse-result" class="h-48 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words">--</pre>
+                </div>
+                <div class="bg-slate-950 border border-slate-700 rounded p-3 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div class="text-xs text-slate-300">批量回测看板（任务/结果/汇总）</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="loadBatchOverview()" class="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs border border-blue-500">刷新看板</button>
+                        </div>
+                    </div>
+                    <div id="batch-overview-status" class="text-[11px] text-slate-400 font-mono">待加载</div>
+                    <div id="batch-overview-chips" class="flex flex-wrap gap-2 text-[11px] font-mono"></div>
+                    <div class="bg-slate-900 border border-slate-700 rounded p-2 space-y-2">
+                        <div class="text-[11px] text-slate-300">批量执行控制</div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px]">
+                            <label class="text-slate-300">批次过滤
+                                <input id="batch-run-batch-filter" type="text" placeholder="如 BULL,BEAR" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            </label>
+                            <label class="text-slate-300">最多执行
+                                <input id="batch-run-max-tasks" type="number" min="0" value="0" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            </label>
+                            <label class="text-slate-300">并发进程
+                                <input id="batch-run-workers" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            </label>
+                            <label class="text-slate-300">自动归档
+                                <div class="mt-1 flex items-center h-[30px] bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                                    <input id="batch-run-archive-completed" type="checkbox" class="mr-2" />
+                                    <span class="text-slate-300">归档已完成任务</span>
+                                </div>
+                            </label>
+                        </div>
+                        <div class="text-[11px] text-slate-500">任务CSV固定使用 data/batch_tasks 目录，避免与历史任务混写。</div>
+                        <div class="flex items-center gap-2">
+                            <button id="batch-run-start-btn" onclick="startBatchRunFromUi()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs border border-emerald-500">开始批量执行</button>
+                            <button id="batch-run-stop-btn" onclick="stopBatchRunFromUi()" class="bg-rose-700 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-xs border border-rose-500">停止</button>
+                            <button onclick="refreshBatchRunStatus()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-500">刷新执行状态</button>
+                            <span id="batch-run-status" class="text-[11px] text-slate-400 font-mono">未启动</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                            <div id="batch-run-progress-bar" class="h-full bg-cyan-500 transition-all" style="width:0%"></div>
+                        </div>
+                        <div id="batch-run-progress-text" class="text-[11px] text-slate-400 font-mono">进度 --</div>
+                        <pre id="batch-run-log-tail" class="h-24 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <div class="text-[11px] text-slate-400 mb-1">批次执行进度</div>
+                            <div id="batch-overview-batches" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] text-slate-400 mb-1">策略评分Top</div>
+                            <div id="batch-overview-strategies" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="text-[11px] text-slate-400">回测结果明细（最近）</div>
+                            <input id="batch-overview-filter" type="text" placeholder="筛选：策略ID/批次号/股票代码" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 font-mono w-64 max-w-full" oninput="renderBatchOverviewDetailTable()" />
+                        </div>
+                        <div class="max-h-56 overflow-auto border border-slate-700 rounded">
+                            <table class="w-full text-[11px] font-mono">
+                                <thead class="bg-slate-800 text-slate-300 sticky top-0 z-10">
+                                    <tr>
+                                        <th class="px-2 py-1 text-left">任务ID</th>
+                                        <th class="px-2 py-1 text-left">批次</th>
+                                        <th class="px-2 py-1 text-left">股票</th>
+                                        <th class="px-2 py-1 text-left">策略</th>
+                                        <th class="px-2 py-1 text-left">年化</th>
+                                        <th class="px-2 py-1 text-left">回撤</th>
+                                        <th class="px-2 py-1 text-left">胜率</th>
+                                        <th class="px-2 py-1 text-left">评分</th>
+                                        <th class="px-2 py-1 text-left">报告ID</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="batch-overview-table-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="batch-dashboard-modal" class="hidden fixed inset-0 bg-black/70 z-[147] flex items-center justify-center p-6">
+        <div class="w-[1180px] max-w-[97vw] h-[90vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-list-check mr-2 text-cyan-300"></i>批量回测看板</div>
+                <button onclick="closeBatchDashboardModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">支持执行前任务预览、任务明细核对、批量启动/停止与进度跟踪。</div>
+            <div class="flex-1 p-4 overflow-y-auto space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-2 text-xs">
+                    <label class="text-slate-300">任务CSV
+                        <input id="bdm-tasks-csv" type="text" value="data/batch_tasks/批量回测任务.csv" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                    </label>
+                    <label class="text-slate-300">批次过滤
+                        <input id="bdm-batch-filter" type="text" placeholder="如 BULL,BEAR" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                    </label>
+                    <label class="text-slate-300">状态过滤
+                        <select id="bdm-status-filter" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+                            <option value="">全部</option>
+                            <option value="pending">待执行</option>
+                            <option value="retry">重试</option>
+                            <option value="running">运行中</option>
+                            <option value="success">成功</option>
+                            <option value="failed">失败</option>
+                        </select>
+                    </label>
+                    <label class="text-slate-300">预览上限
+                        <input id="bdm-preview-limit" type="number" min="20" max="3000" value="500" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                    </label>
+                    <div class="flex items-end">
+                        <button onclick="openBatchTaskCsvPicker()" class="w-full bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded text-xs border border-indigo-500">选择任务CSV</button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-end -mt-1">
+                    <button onclick="loadBatchTaskPreview()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-1.5 rounded text-xs border border-cyan-500">预览加载</button>
+                </div>
+                <div id="bdm-task-preview-status" class="text-[11px] text-slate-400 font-mono">待加载</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="border border-slate-700 rounded overflow-hidden">
+                        <div class="px-3 py-2 text-[11px] text-slate-300 bg-slate-800">任务列表（执行前核对）</div>
+                        <div class="max-h-64 overflow-auto">
+                            <table class="w-full text-[11px] font-mono">
+                                <thead class="bg-slate-800 text-slate-300 sticky top-0">
+                                    <tr>
+                                        <th class="px-2 py-1 text-left">任务ID</th>
+                                        <th class="px-2 py-1 text-left">批次</th>
+                                        <th class="px-2 py-1 text-left">股票</th>
+                                        <th class="px-2 py-1 text-left">策略</th>
+                                        <th class="px-2 py-1 text-left">区间</th>
+                                        <th class="px-2 py-1 text-left">状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bdm-task-preview-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="border border-slate-700 rounded overflow-hidden">
+                        <div class="px-3 py-2 text-[11px] text-slate-300 bg-slate-800">任务明细（当前选中）</div>
+                        <div class="max-h-64 overflow-auto">
+                            <table class="w-full text-[11px] font-mono">
+                                <tbody id="bdm-task-detail-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-900 border border-slate-700 rounded p-2 space-y-2">
+                    <div class="text-[11px] text-slate-300">批量执行控制</div>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px]">
+                        <label class="text-slate-300">最多执行
+                            <input id="bdm-max-tasks" type="number" min="0" value="0" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                        </label>
+                        <label class="text-slate-300">并发进程
+                            <input id="bdm-workers" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                        </label>
+                        <label class="text-slate-300">自动归档
+                            <div class="mt-1 flex items-center h-[30px] bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                                <input id="bdm-archive-completed" type="checkbox" class="mr-2" />
+                                <span class="text-slate-300">归档已完成任务</span>
+                            </div>
+                        </label>
+                        <label class="text-slate-300">归档文件
+                            <input id="bdm-archive-csv" type="text" value="data/batch_tasks/archive/批量回测任务.archive.csv" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="bdm-start-btn" onclick="startBatchRunFromDashboard()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs border border-emerald-500">开始批量执行</button>
+                        <button id="bdm-stop-btn" onclick="stopBatchRunFromDashboard()" class="bg-rose-700 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-xs border border-rose-500">停止</button>
+                        <button onclick="refreshBatchRunStatusForDashboard()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-500">刷新执行状态</button>
+                        <span id="bdm-run-status" class="text-[11px] text-slate-400 font-mono">未启动</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                        <div id="bdm-run-progress-bar" class="h-full bg-cyan-500 transition-all" style="width:0%"></div>
+                    </div>
+                    <div id="bdm-run-progress-text" class="text-[11px] text-slate-400 font-mono">进度 --</div>
+                    <pre id="bdm-run-log-tail" class="h-80 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="batch-task-csv-picker-modal" class="hidden fixed inset-0 bg-black/70 z-[148] flex items-center justify-center p-6">
+        <div class="w-[760px] max-w-[96vw] h-[70vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                <div class="text-white font-bold"><i class="fa-solid fa-folder-open mr-2 text-cyan-300"></i>选择任务CSV</div>
+                <button onclick="closeBatchTaskCsvPicker()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="px-4 py-2 border-b border-slate-700 text-xs text-slate-400 flex items-center gap-2">
+                <button onclick="loadBatchTaskCsvList()" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded border border-slate-500 text-[11px]">刷新列表</button>
+                <label class="flex items-center gap-1 text-[11px]"><input id="batch-task-csv-include-archive" type="checkbox" onchange="loadBatchTaskCsvList()" />包含归档文件</label>
+                <span id="batch-task-csv-list-status" class="font-mono">待加载</span>
+            </div>
+            <div class="px-4 py-2 border-b border-slate-700 text-xs text-slate-300 grid grid-cols-1 md:grid-cols-[1fr_120px_120px] gap-2">
+                <input id="batch-task-csv-new-prefix" type="text" placeholder="新建任务文件前缀（如 策略A_）" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-100 font-mono" />
+                <label class="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded px-2 py-1">
+                    <input id="batch-task-csv-new-overwrite" type="checkbox" />
+                    <span class="text-[11px]">允许覆盖</span>
+                </label>
+                <button onclick="createBatchTaskCsvTemplate()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-2 py-1 rounded border border-emerald-500 text-[11px]">新建任务文件</button>
+            </div>
+            <div class="flex-1 overflow-auto">
+                <table class="w-full text-[11px] font-mono">
+                    <thead class="bg-slate-800 text-slate-300 sticky top-0">
+                        <tr>
+                            <th class="px-2 py-1 text-left">文件</th>
+                            <th class="px-2 py-1 text-left">修改时间</th>
+                            <th class="px-2 py-1 text-right">大小</th>
+                            <th class="px-2 py-1 text-left">类型</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batch-task-csv-list-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -1463,6 +1883,16 @@
         const renderCoalesceMap = new Map();
         let renderLoopTimer = null;
         let strategyReportsBuffer = [];
+        let batchOverviewPayload = null;
+        let batchRunStatusPayload = null;
+        let batchRunPollTimer = null;
+        let batchStartPendingDashboard = false;
+        let batchStartPendingUi = false;
+        let batchDashboardTaskRows = [];
+        let batchDashboardTaskSelectedId = '';
+        let batchTaskCsvListRows = [];
+        const DEFAULT_TASKS_CSV = 'data/batch_tasks/批量回测任务.csv';
+        const DEFAULT_ARCHIVE_TASKS_CSV = 'data/batch_tasks/archive/批量回测任务.archive.csv';
         let liveRunning = false;
         let liveEnabled = window.__LIVE_ENABLED__ === true;
         let liveActionPending = false;
@@ -1618,8 +2048,14 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         let backtestStreamClosed = false;
         let currentBacktestReportId = '';
         let backtestStartInFlight = false;
+        let backtestStopInFlight = false;
         let disclaimerAccepted = false;
         const DISCLAIMER_SKIP_ONCE_KEY = 'jince-disclaimer-skip-once-v1';
+        const DISCLAIMER_ACCEPT_KEY = 'jince-disclaimer-accepted-v1';
+        const DISCLAIMER_FORCE_RECHECK_KEY = 'jince-disclaimer-force-recheck-v1';
+        const DISCLAIMER_LAST_BOOT_KEY = 'jince-disclaimer-last-boot-v1';
+        const DISCLAIMER_ACCEPT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+        let currentServerBootId = '';
         const STRATEGY_GUIDE = {
             all: {
                 name: '全部策略总览',
@@ -2100,9 +2536,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     refreshKlineModalImage(true);
                     break;
                 case 'backtest_failed':
-                    closeBacktestStream();
-                    setBacktestButtonState(BACKTEST_BTN_STATE.error);
-                    logMessage('回测', data?.msg || '回测失败', 'danger');
+                    handleBacktestFailure(data?.msg || '回测失败');
                     break;
                 case 'backtest_strategy_report':
                     upsertStrategyReport(data);
@@ -4790,6 +5224,1352 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (modal) modal.classList.add('hidden');
         }
 
+        const OPS_HUB_PIN_KEY = 'jince-ops-hub-pin-v1';
+        let opsHubPinned = false;
+
+        function openOpsHubModal() {
+            const drawer = document.getElementById('ops-hub-drawer');
+            if (drawer) {
+                drawer.classList.remove('translate-x-full', 'opacity-0', 'pointer-events-none');
+                drawer.classList.add('translate-x-0', 'opacity-100');
+            }
+            syncOpsHubBackdrop();
+        }
+
+        function closeOpsHubModal() {
+            if (opsHubPinned) setOpsHubPinned(false);
+            const drawer = document.getElementById('ops-hub-drawer');
+            if (drawer) {
+                drawer.classList.remove('translate-x-0', 'opacity-100');
+                drawer.classList.add('translate-x-full', 'opacity-0', 'pointer-events-none');
+            }
+            syncOpsHubBackdrop();
+        }
+
+        function toggleOpsHubSection(bodyId) {
+            const el = document.getElementById(bodyId);
+            if (!el) return;
+            el.classList.toggle('hidden');
+        }
+
+        function toggleOpsHubPinned() {
+            setOpsHubPinned(!opsHubPinned);
+        }
+
+        function setOpsHubPinned(pinned) {
+            opsHubPinned = !!pinned;
+            applyOpsHubPinState();
+            try { localStorage.setItem(OPS_HUB_PIN_KEY, opsHubPinned ? '1' : '0'); } catch (_) {}
+        }
+
+        function loadOpsHubPinState() {
+            try {
+                opsHubPinned = String(localStorage.getItem(OPS_HUB_PIN_KEY) || '') === '1';
+            } catch (_) {
+                opsHubPinned = false;
+            }
+            applyOpsHubPinState();
+        }
+
+        function applyOpsHubPinState() {
+            const drawer = document.getElementById('ops-hub-drawer');
+            const backdrop = document.getElementById('ops-hub-backdrop');
+            const pinBtn = document.getElementById('ops-hub-pin-btn');
+            const entryBtn = document.getElementById('ops-hub-btn');
+            if (pinBtn) {
+                pinBtn.className = opsHubPinned ? 'text-fuchsia-300 hover:text-fuchsia-200' : 'text-slate-400 hover:text-white';
+                pinBtn.title = opsHubPinned ? '取消固定右侧工具栏' : '固定右侧工具栏';
+            }
+            if (entryBtn) {
+                entryBtn.classList.toggle('ring-2', opsHubPinned);
+                entryBtn.classList.toggle('ring-fuchsia-300', opsHubPinned);
+            }
+            if (!drawer) return;
+            drawer.style.width = opsHubPinned ? '320px' : '380px';
+            if (opsHubPinned) {
+                drawer.classList.remove('translate-x-full', 'opacity-0', 'pointer-events-none');
+                drawer.classList.add('translate-x-0', 'opacity-100');
+            }
+            if (backdrop && opsHubPinned) {
+                backdrop.classList.add('hidden');
+            }
+            syncOpsHubBackdrop();
+        }
+
+        function syncOpsHubBackdrop() {
+            const drawer = document.getElementById('ops-hub-drawer');
+            const backdrop = document.getElementById('ops-hub-backdrop');
+            if (!drawer || !backdrop) return;
+            const opened = drawer.classList.contains('translate-x-0') && !drawer.classList.contains('pointer-events-none');
+            const shouldShow = opened && !opsHubPinned;
+            backdrop.classList.toggle('hidden', !shouldShow);
+        }
+
+        function closeAllMajorFunctionModals(exceptId = '') {
+            const keep = String(exceptId || '').trim();
+            const ids = [
+                'tdx-tools-modal',
+                'blk-tools-modal',
+                'batch-dashboard-modal',
+                'batch-task-csv-picker-modal',
+                'config-modal',
+                'webhook-retry-modal',
+                'pattern-picker-modal'
+            ];
+            ids.forEach(id => {
+                if (id === keep) return;
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+        }
+
+        function openFeatureFromHub(target) {
+            const t = String(target || '').trim().toLowerCase();
+            if (!t) return;
+            if (t === 'tdx') {
+                closeAllMajorFunctionModals('tdx-tools-modal');
+                openTdxToolsModal();
+                return;
+            }
+            if (t === 'blk') {
+                closeAllMajorFunctionModals('blk-tools-modal');
+                openBlkToolsModal();
+                return;
+            }
+            if (t === 'batch') {
+                closeAllMajorFunctionModals('batch-dashboard-modal');
+                openBatchDashboardModal();
+                return;
+            }
+            if (t === 'config') {
+                closeAllMajorFunctionModals('config-modal');
+                openConfigCenter();
+                return;
+            }
+            if (t === 'webhook') {
+                closeAllMajorFunctionModals('webhook-retry-modal');
+                openWebhookRetryCenter();
+                return;
+            }
+            if (t === 'pattern') {
+                closeAllMajorFunctionModals('pattern-picker-modal');
+                openPatternPicker();
+            }
+        }
+
+        function openTdxToolsModal() {
+            const modal = document.getElementById('tdx-tools-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeTdxToolsModal() {
+            const modal = document.getElementById('tdx-tools-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function openBlkToolsModal() {
+            const modal = document.getElementById('blk-tools-modal');
+            if (modal) modal.classList.remove('hidden');
+            _applyBatchCsvDefaultsToUi();
+            toggleBlkStrategySourceUi();
+            loadBlkStrategyCatalog();
+            loadBatchOverview();
+            refreshBatchRunStatus();
+        }
+
+        function closeBlkToolsModal() {
+            const modal = document.getElementById('blk-tools-modal');
+            if (modal) modal.classList.add('hidden');
+            if (batchRunPollTimer) {
+                clearTimeout(batchRunPollTimer);
+                batchRunPollTimer = null;
+            }
+        }
+
+        function openBatchDashboardModal() {
+            closeAllMajorFunctionModals('batch-dashboard-modal');
+            const modal = document.getElementById('batch-dashboard-modal');
+            if (modal) modal.classList.remove('hidden');
+            _applyBatchCsvDefaultsToUi();
+            loadBatchTaskPreview();
+            refreshBatchRunStatusForDashboard();
+        }
+
+        function closeBatchDashboardModal() {
+            const modal = document.getElementById('batch-dashboard-modal');
+            if (modal) modal.classList.add('hidden');
+            closeBatchTaskCsvPicker();
+            if (batchRunPollTimer) {
+                clearTimeout(batchRunPollTimer);
+                batchRunPollTimer = null;
+            }
+        }
+
+        function _setTdxStatus(text, level = 'info') {
+            const el = document.getElementById('tdx-tools-status');
+            if (!el) return;
+            const msg = String(text || '');
+            el.innerText = msg;
+            el.className = `text-xs ${level === 'error' ? 'text-rose-300' : (level === 'success' ? 'text-emerald-300' : 'text-slate-400')}`;
+        }
+
+        function _setBlkStatus(text, level = 'info') {
+            const el = document.getElementById('blk-tools-status');
+            if (!el) return;
+            const msg = String(text || '');
+            el.innerText = msg;
+            el.className = `text-xs ${level === 'error' ? 'text-rose-300' : (level === 'success' ? 'text-emerald-300' : 'text-slate-400')}`;
+        }
+
+        function applyTdxPromptTemplate() {
+            const key = String(document.getElementById('tdx-prompt-template')?.value || '').trim();
+            if (!key) {
+                _setTdxStatus('请先选择模板', 'error');
+                return;
+            }
+            const klineType = String(document.getElementById('tdx-kline-type')?.value || '1min').trim() || '1min';
+            const tfMap = { '1min': '1分钟', '5min': '5分钟', '15min': '15分钟', '30min': '30分钟', '60min': '60分钟', 'D': '日线' };
+            const tfLabel = String(tfMap[klineType] || klineType);
+            const templateMap = {
+                ma_cross: `请基于${tfLabel}设计通达信选股公式：短周期均线上穿长周期均线触发信号，要求加入趋势过滤，避免震荡区反复触发。`,
+                volume_breakout: `请基于${tfLabel}设计通达信选股公式：价格突破近20周期高点且当前成交量大于近5周期均量的1.8倍时触发信号。`,
+                macd_divergence: `请基于${tfLabel}设计通达信选股公式：识别价格创新低但MACD柱体抬高的底背离形态，并在出现确认金叉时触发信号。`,
+                rsi_reversal: `请基于${tfLabel}设计通达信选股公式：RSI先进入超卖区后重新上穿阈值，同时价格站回短期均线时触发信号。`
+            };
+            const prompt = String(templateMap[key] || '').trim();
+            if (!prompt) {
+                _setTdxStatus('模板内容为空', 'error');
+                return;
+            }
+            const promptEl = document.getElementById('tdx-formula-prompt');
+            if (promptEl) promptEl.value = prompt;
+            _setTdxStatus(`已填充模板：${key}`, 'success');
+        }
+
+        async function generateTdxFormulaByLlm() {
+            const prompt = String(document.getElementById('tdx-formula-prompt')?.value || '').trim();
+            if (!prompt) {
+                _setTdxStatus('请先输入公式需求描述', 'error');
+                return;
+            }
+            const klineType = String(document.getElementById('tdx-kline-type')?.value || '1min').trim() || '1min';
+            _setTdxStatus('大模型生成中...');
+            try {
+                const res = await fetch('/api/tdx/generate_formula', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        kline_type: klineType
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '生成失败');
+                }
+                const formulaEl = document.getElementById('tdx-formula-text');
+                if (formulaEl) formulaEl.value = String(data.formula_text || '').trim();
+                _setTdxStatus(String(data.msg || '公式已生成'), 'success');
+            } catch (e) {
+                _setTdxStatus(`生成失败: ${e}`, 'error');
+            }
+        }
+
+        async function compileTdxFormula() {
+            const formulaText = String(document.getElementById('tdx-formula-text')?.value || '').trim();
+            if (!formulaText) {
+                _setTdxStatus('请先输入通达信公式', 'error');
+                return;
+            }
+            const strategyId = String(document.getElementById('tdx-strategy-id')?.value || '').trim();
+            const strategyName = String(document.getElementById('tdx-strategy-name')?.value || '').trim();
+            const klineType = String(document.getElementById('tdx-kline-type')?.value || '1min').trim() || '1min';
+            _setTdxStatus('编译中...');
+            try {
+                const res = await fetch('/api/tdx/compile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        formula_text: formulaText,
+                        strategy_id: strategyId || null,
+                        strategy_name: strategyName || null,
+                        kline_type: klineType
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '编译失败');
+                }
+                const meta = {
+                    strategy_id: data.strategy_id,
+                    strategy_name: data.strategy_name,
+                    class_name: data.class_name,
+                    kline_type: data.kline_type,
+                    warmup_bars: data.warmup_bars,
+                    used_functions: data.used_functions || []
+                };
+                const metaEl = document.getElementById('tdx-compile-meta');
+                const codeEl = document.getElementById('tdx-compile-code');
+                if (metaEl) metaEl.innerText = JSON.stringify(meta, null, 2);
+                if (codeEl) codeEl.innerText = String(data.code || '--');
+                if (!strategyId && data.strategy_id) {
+                    const idEl = document.getElementById('tdx-strategy-id');
+                    if (idEl) idEl.value = String(data.strategy_id);
+                }
+                _setTdxStatus('编译成功', 'success');
+            } catch (e) {
+                _setTdxStatus(`编译失败: ${e}`, 'error');
+            }
+        }
+
+        async function importTdxFormulaStrategy() {
+            const formulaText = String(document.getElementById('tdx-formula-text')?.value || '').trim();
+            if (!formulaText) {
+                _setTdxStatus('请先输入通达信公式', 'error');
+                return;
+            }
+            const strategyId = String(document.getElementById('tdx-strategy-id')?.value || '').trim();
+            const strategyName = String(document.getElementById('tdx-strategy-name')?.value || '').trim();
+            const klineType = String(document.getElementById('tdx-kline-type')?.value || '1min').trim() || '1min';
+            _setTdxStatus('导入中...');
+            try {
+                const res = await fetch('/api/tdx/import_strategy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        formula_text: formulaText,
+                        strategy_id: strategyId || null,
+                        strategy_name: strategyName || null,
+                        kline_type: klineType
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '导入失败');
+                }
+                const idEl = document.getElementById('tdx-strategy-id');
+                if (idEl && data.strategy_id) idEl.value = String(data.strategy_id);
+                _setTdxStatus(`导入成功: ${data.strategy_id || '--'}`, 'success');
+                logMessage('SYSTEM', `TDX策略导入成功: ${data.strategy_id || '--'}`, 'success');
+                await fetchGlobalStrategies();
+            } catch (e) {
+                _setTdxStatus(`导入失败: ${e}`, 'error');
+            }
+        }
+
+        function _readLocalBlkFileAsText() {
+            return new Promise((resolve, reject) => {
+                const fileEl = document.getElementById('blk-file-input');
+                const file = fileEl && fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+                if (!file) {
+                    resolve('');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error('本地BLK文件读取失败'));
+                reader.readAsText(file);
+            });
+        }
+
+        async function _collectBlkSourcePayload() {
+            const filePath = String(document.getElementById('blk-file-path')?.value || '').trim();
+            const textAreaVal = String(document.getElementById('blk-content-text')?.value || '');
+            const localText = await _readLocalBlkFileAsText();
+            const content = localText || textAreaVal;
+            if (!filePath && !content.trim()) {
+                throw new Error('请提供BLK路径、上传文件或粘贴内容');
+            }
+            return { filePath, content };
+        }
+
+        function _validateBlkFormInputs(options = {}) {
+            const forGenerate = !!options.forGenerate;
+            const encodingEl = document.getElementById('blk-encoding');
+            const encodingRaw = String(encodingEl?.value || 'auto').trim().toLowerCase();
+            const encoding = encodingRaw || 'auto';
+            const allowed = new Set(['auto', 'utf-8', 'utf8', 'gbk', 'gb2312']);
+            if (!allowed.has(encoding)) {
+                throw new Error('编码仅支持 auto/utf-8/utf8/gbk/gb2312');
+            }
+            if (encodingEl) encodingEl.value = encoding;
+            const poolEl = document.getElementById('blk-stock-pool-csv');
+            const stockPoolCsv = String(poolEl?.value || 'data/任务生成_标的池.csv').trim() || 'data/任务生成_标的池.csv';
+            if (!stockPoolCsv.toLowerCase().endsWith('.csv') || stockPoolCsv.includes('..')) {
+                throw new Error('标的池CSV路径不合法');
+            }
+            if (poolEl) poolEl.value = stockPoolCsv.replace(/\\/g, '/');
+            const marketEl = document.getElementById('blk-market-tag');
+            const industryEl = document.getElementById('blk-industry-tag');
+            const sizeEl = document.getElementById('blk-size-tag');
+            const marketTag = String(marketEl?.value || '主板').trim().slice(0, 32) || '主板';
+            const industryTag = String(industryEl?.value || 'BLK导入').trim().slice(0, 32) || 'BLK导入';
+            const sizeTag = String(sizeEl?.value || '未知').trim().slice(0, 32) || '未知';
+            if (marketEl) marketEl.value = marketTag;
+            if (industryEl) industryEl.value = industryTag;
+            if (sizeEl) sizeEl.value = sizeTag;
+            if (forGenerate) {
+                const tasksEl = document.getElementById('blk-tasks-csv');
+                const tasksCsv = _normalizeTaskCsvPath(String(tasksEl?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+                if (tasksEl) tasksEl.value = tasksCsv;
+                const strategyCsvEl = document.getElementById('blk-strategies-csv');
+                const strategiesCsv = String(strategyCsvEl?.value || 'data/任务生成_策略池.csv').trim() || 'data/任务生成_策略池.csv';
+                if (!strategiesCsv.toLowerCase().endsWith('.csv') || strategiesCsv.includes('..')) {
+                    throw new Error('策略池CSV路径不合法');
+                }
+                if (strategyCsvEl) strategyCsvEl.value = strategiesCsv.replace(/\\/g, '/');
+                const prefixEl = document.getElementById('blk-task-file-prefix');
+                const prefix = String(prefixEl?.value || '').trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 40);
+                if (prefixEl) prefixEl.value = prefix;
+            }
+        }
+
+        async function parseBlkPreview() {
+            _setBlkStatus('解析中...');
+            try {
+                _validateBlkFormInputs({ forGenerate: false });
+                const source = await _collectBlkSourcePayload();
+                const encoding = String(document.getElementById('blk-encoding')?.value || 'auto').trim() || 'auto';
+                const normalizeSymbol = !!document.getElementById('blk-normalize-symbol')?.checked;
+                const res = await fetch('/api/blk/parse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_path: source.filePath || null,
+                        content: source.content || null,
+                        encoding,
+                        normalize_symbol: normalizeSymbol
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '解析失败');
+                }
+                const out = {
+                    path: data.path || '',
+                    count: data.count || 0,
+                    sample_codes: Array.isArray(data.codes) ? data.codes.slice(0, 50) : [],
+                    invalid_lines: data.invalid_lines || []
+                };
+                const resultEl = document.getElementById('blk-parse-result');
+                if (resultEl) resultEl.innerText = JSON.stringify(out, null, 2);
+                _setBlkStatus(`解析成功，共 ${Number(data.count || 0)} 只`, 'success');
+            } catch (e) {
+                _setBlkStatus(`解析失败: ${e}`, 'error');
+            }
+        }
+
+        async function importBlkToStockPool() {
+            _setBlkStatus('写入中...');
+            try {
+                _validateBlkFormInputs({ forGenerate: false });
+                const source = await _collectBlkSourcePayload();
+                const encoding = String(document.getElementById('blk-encoding')?.value || 'auto').trim() || 'auto';
+                const normalizeSymbol = !!document.getElementById('blk-normalize-symbol')?.checked;
+                const stockPoolCsv = String(document.getElementById('blk-stock-pool-csv')?.value || 'data/任务生成_标的池.csv').trim() || 'data/任务生成_标的池.csv';
+                const importMode = String(document.getElementById('blk-import-mode')?.value || 'append').trim() || 'append';
+                const marketTag = String(document.getElementById('blk-market-tag')?.value || '主板').trim() || '主板';
+                const industryTag = String(document.getElementById('blk-industry-tag')?.value || 'BLK导入').trim() || 'BLK导入';
+                const sizeTag = String(document.getElementById('blk-size-tag')?.value || '未知').trim() || '未知';
+                const enabled = !!document.getElementById('blk-enabled')?.checked;
+                const res = await fetch('/api/blk/import_stock_pool', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_path: source.filePath || null,
+                        content: source.content || null,
+                        encoding,
+                        normalize_symbol: normalizeSymbol,
+                        import_mode: importMode,
+                        market_tag: marketTag,
+                        industry_tag: industryTag,
+                        size_tag: sizeTag,
+                        enabled,
+                        stock_pool_csv: stockPoolCsv
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '写入失败');
+                }
+                const resultEl = document.getElementById('blk-parse-result');
+                if (resultEl) resultEl.innerText = JSON.stringify(data, null, 2);
+                const addedCount = Number(data.added_count || 0);
+                const updatedCount = Number(data.updated_count || 0);
+                _setBlkStatus(`写入成功: 新增${addedCount} 更新${updatedCount}（可点“一键生成任务”）`, 'success');
+                logMessage('SYSTEM', `BLK导入完成: 新增${Number(data.added_count || 0)} 更新${Number(data.updated_count || 0)}`, 'success');
+                const generateMode = String(document.getElementById('blk-generate-mode')?.value || 'append').trim() || 'append';
+                const askText = `BLK导入成功（新增${addedCount}，更新${updatedCount}）。\n是否立即生成批量任务？\n当前任务模式：${generateMode}`;
+                if (window.confirm(askText)) {
+                    await generateBatchTasksQuick('auto_confirm');
+                } else {
+                    _setBlkStatus('已导入，可稍后手动点“一键生成任务”', 'success');
+                }
+            } catch (e) {
+                _setBlkStatus(`写入失败: ${e}`, 'error');
+            }
+        }
+
+        function buildAutoTaskCsvPath() {
+            const d = new Date();
+            const yyyy = String(d.getFullYear());
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mi = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            const ms = String(d.getMilliseconds()).padStart(3, '0');
+            const rawPrefix = String(document.getElementById('blk-task-file-prefix')?.value || '').trim();
+            const cleanPrefix = rawPrefix.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_');
+            const prefix = cleanPrefix ? `${cleanPrefix}` : '';
+            return `data/batch_tasks/${prefix}批量回测任务_${yyyy}${mm}${dd}_${hh}${mi}${ss}_${ms}.csv`;
+        }
+
+        function _normalizeTaskCsvPath(raw, fallback = DEFAULT_TASKS_CSV) {
+            const text = String(raw || '').trim().replace(/\\/g, '/');
+            const base = text || String(fallback || DEFAULT_TASKS_CSV);
+            const withExt = base.toLowerCase().endsWith('.csv') ? base : `${base}.csv`;
+            const cleaned = withExt.replace(/\/+/g, '/').replace(/^\.\//, '');
+            if (!/^data\/batch_tasks\//.test(cleaned)) {
+                throw new Error('任务CSV必须位于 data/batch_tasks/ 目录');
+            }
+            if (cleaned.includes('..')) {
+                throw new Error('任务CSV路径不允许包含 ..');
+            }
+            return cleaned;
+        }
+
+        function _normalizeArchiveCsvPath(raw, fallback = DEFAULT_ARCHIVE_TASKS_CSV) {
+            return _normalizeTaskCsvPath(raw, fallback);
+        }
+
+        function _normalizeBatchFilterText(raw) {
+            return String(raw || '')
+                .replace(/，/g, ',')
+                .split(',')
+                .map(x => String(x || '').trim())
+                .filter(Boolean)
+                .join(',');
+        }
+
+        function _readIntInput(id, { min = 0, max = 999999, fallback = 0 } = {}) {
+            const el = document.getElementById(id);
+            const raw = Number(el?.value);
+            const value = Number.isFinite(raw) ? Math.floor(raw) : fallback;
+            const safe = Math.max(min, Math.min(max, value));
+            if (el) el.value = String(safe);
+            return safe;
+        }
+
+        function _applyBatchCsvDefaultsToUi() {
+            const blkTasks = document.getElementById('blk-tasks-csv');
+            if (blkTasks && !String(blkTasks.value || '').trim()) blkTasks.value = DEFAULT_TASKS_CSV;
+            const bdmTasks = document.getElementById('bdm-tasks-csv');
+            if (bdmTasks && !String(bdmTasks.value || '').trim()) bdmTasks.value = DEFAULT_TASKS_CSV;
+            const bdmArchive = document.getElementById('bdm-archive-csv');
+            if (bdmArchive && !String(bdmArchive.value || '').trim()) bdmArchive.value = DEFAULT_ARCHIVE_TASKS_CSV;
+        }
+
+        function _resolveBatchStrategyIdsFromUi() {
+            const picked = Array.isArray(selectedStrategyIds) ? selectedStrategyIds.map(x => String(x || '').trim()).filter(Boolean) : [];
+            if (picked.length) return picked;
+            const all = Array.isArray(strategyCatalog) ? strategyCatalog.map(x => String(x?.id || '').trim()).filter(Boolean) : [];
+            return all;
+        }
+
+        function toggleBlkStrategySourceUi() {
+            const mode = String(document.getElementById('blk-strategy-source-mode')?.value || 'selected').trim();
+            const wrap = document.getElementById('blk-manual-strategy-wrap');
+            if (!wrap) return;
+            if (mode === 'manual_pick') {
+                wrap.classList.remove('hidden');
+            } else {
+                wrap.classList.add('hidden');
+            }
+        }
+
+        async function loadBlkStrategyCatalog() {
+            try {
+                if (!Array.isArray(strategyCatalog) || !strategyCatalog.length) {
+                    const res = await fetch('/api/strategies');
+                    const data = await res.json();
+                    if (res.ok && Array.isArray(data.strategies)) {
+                        strategyCatalog = data.strategies.map(item => ({
+                            id: String(item?.id || '').trim(),
+                            name: String(item?.name || '').trim(),
+                        })).filter(x => x.id);
+                    }
+                }
+            } catch (_) {}
+            const wrap = document.getElementById('blk-manual-strategy-select');
+            if (!wrap) return;
+            const existing = new Set(
+                Array.from(wrap.querySelectorAll('input[type="checkbox"][data-strategy-id]:checked') || [])
+                    .map(el => String(el.getAttribute('data-strategy-id') || '').trim())
+                    .filter(Boolean)
+            );
+            const rows = (Array.isArray(strategyCatalog) ? strategyCatalog : []).filter(x => String(x?.id || '').trim());
+            wrap.innerHTML = rows.map(r => {
+                const sid = String(r.id);
+                const checked = existing.has(sid) ? 'checked' : '';
+                return `<label class="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-slate-700/50"><input type="checkbox" data-strategy-id="${sid}" ${checked} /><span>${sid}${r.name ? ` | ${String(r.name)}` : ''}</span></label>`;
+            }).join('');
+        }
+
+        function _getManualPickedStrategyIds() {
+            const wrap = document.getElementById('blk-manual-strategy-select');
+            if (!wrap) return [];
+            return Array.from(wrap.querySelectorAll('input[type="checkbox"][data-strategy-id]:checked') || [])
+                .map(el => String(el.getAttribute('data-strategy-id') || '').trim())
+                .filter(Boolean);
+        }
+
+        function selectAllBlkManualStrategies(checked) {
+            const wrap = document.getElementById('blk-manual-strategy-select');
+            if (!wrap) return;
+            Array.from(wrap.querySelectorAll('input[type="checkbox"][data-strategy-id]') || []).forEach(el => {
+                el.checked = !!checked;
+            });
+        }
+
+        async function syncBatchStrategyPoolFromUi() {
+            _setBlkStatus('策略池同步中...');
+            try {
+                _validateBlkFormInputs({ forGenerate: true });
+                const strategyPoolCsv = String(document.getElementById('blk-strategies-csv')?.value || 'data/任务生成_策略池.csv').trim() || 'data/任务生成_策略池.csv';
+                const sourceMode = String(document.getElementById('blk-strategy-source-mode')?.value || 'selected').trim();
+                const useAllEnabled = sourceMode === 'all_enabled';
+                const manualPick = sourceMode === 'manual_pick';
+                if (manualPick) {
+                    await loadBlkStrategyCatalog();
+                }
+                const strategyIds = useAllEnabled ? [] : (manualPick ? _getManualPickedStrategyIds() : _resolveBatchStrategyIdsFromUi());
+                if (!useAllEnabled && !strategyIds.length) {
+                    throw new Error(manualPick ? '请先在“手动勾选策略”里至少选择一个策略' : '当前主界面未选策略，请先选择或改为“全部启用策略/手动勾选策略”');
+                }
+                const res = await fetch('/api/batch/strategy_pool/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        strategy_pool_csv: strategyPoolCsv,
+                        strategy_ids: strategyIds,
+                        use_all_enabled: useAllEnabled,
+                        mode: 'replace'
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '同步失败');
+                }
+                const resultEl = document.getElementById('blk-parse-result');
+                if (resultEl) resultEl.innerText = JSON.stringify(data, null, 2);
+                _setBlkStatus(`策略池同步完成：${Number(data.total_count || 0)} 条`, 'success');
+                return data;
+            } catch (e) {
+                _setBlkStatus(`策略池同步失败: ${e}`, 'error');
+                throw e;
+            }
+        }
+
+        async function generateBatchTasksQuick(triggerSource = 'manual') {
+            _setBlkStatus(triggerSource === 'auto_confirm' ? '已确认，任务生成中...' : '任务生成中...');
+            try {
+                _validateBlkFormInputs({ forGenerate: true });
+                const generateMode = String(document.getElementById('blk-generate-mode')?.value || 'append').trim() || 'append';
+                const maxTasks = _readIntInput('blk-generate-max-tasks', { min: 0, max: 200000, fallback: 0 });
+                const autoNewTaskFile = !!document.getElementById('blk-auto-new-task-file')?.checked;
+                let tasksCsv = String(document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim() || DEFAULT_TASKS_CSV;
+                if (autoNewTaskFile) {
+                    tasksCsv = buildAutoTaskCsvPath();
+                    const tasksInput = document.getElementById('blk-tasks-csv');
+                    if (tasksInput) tasksInput.value = tasksCsv;
+                }
+                tasksCsv = _normalizeTaskCsvPath(tasksCsv, DEFAULT_TASKS_CSV);
+                const tasksInput = document.getElementById('blk-tasks-csv');
+                if (tasksInput) tasksInput.value = tasksCsv;
+                const stocksCsv = String(document.getElementById('blk-stock-pool-csv')?.value || 'data/任务生成_标的池.csv').trim() || 'data/任务生成_标的池.csv';
+                const strategiesCsv = String(document.getElementById('blk-strategies-csv')?.value || 'data/任务生成_策略池.csv').trim() || 'data/任务生成_策略池.csv';
+                await syncBatchStrategyPoolFromUi();
+                const res = await fetch('/api/batch/generate_tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        generate_mode: generateMode,
+                        generate_max_tasks: maxTasks,
+                        tasks_csv: tasksCsv,
+                        generator_stocks_csv: stocksCsv,
+                        generator_strategies_csv: strategiesCsv,
+                        generator_windows_csv: 'data/任务生成_区间池.csv',
+                        generator_scenarios_csv: 'data/任务生成_场景池.csv'
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    const outputTail = Array.isArray(data.output_tail) ? data.output_tail : [];
+                    const firstErrorLine = String(outputTail.find(x => String(x || '').trim()) || '').trim();
+                    const detailMsg = firstErrorLine ? `；详情: ${firstErrorLine}` : '';
+                    const rcMsg = Number.isFinite(Number(data.returncode)) ? `（exit=${Number(data.returncode)}）` : '';
+                    throw new Error(`${data.msg || '任务生成失败'}${rcMsg}${detailMsg}`);
+                }
+                const resultEl = document.getElementById('blk-parse-result');
+                if (resultEl) resultEl.innerText = JSON.stringify(data, null, 2);
+                _setBlkStatus(`任务生成完成：${tasksCsv}（仅生成任务，不会触发单票回测）`, 'success');
+                logMessage('SYSTEM', `批量任务生成完成：${tasksCsv}`, 'success');
+                loadBatchOverview();
+            } catch (e) {
+                _setBlkStatus(`任务生成失败: ${e}`, 'error');
+            }
+        }
+
+        function _fmtPct(v, digits = 2) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '--';
+            return `${(n * 100).toFixed(digits)}%`;
+        }
+
+        function _fmtNum(v, digits = 2) {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '--';
+            return n.toFixed(digits);
+        }
+
+        function _setBatchOverviewStatus(text, level = 'info') {
+            const el = document.getElementById('batch-overview-status');
+            if (!el) return;
+            el.innerText = String(text || '');
+            el.className = `text-[11px] font-mono ${level === 'error' ? 'text-rose-300' : (level === 'success' ? 'text-emerald-300' : 'text-slate-400')}`;
+        }
+
+        async function loadBatchOverview() {
+            _setBatchOverviewStatus('看板加载中...');
+            try {
+                const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+                const tasksInput = document.getElementById('blk-tasks-csv');
+                if (tasksInput) tasksInput.value = tasksCsv;
+                const params = new URLSearchParams({
+                    tasks_csv: tasksCsv,
+                    results_csv: 'data/批量回测结果.csv',
+                    summary_csv: 'data/策略汇总评分.csv',
+                    limit: '300'
+                });
+                const res = await fetch(`/api/batch/overview?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '加载失败');
+                }
+                batchOverviewPayload = data;
+                renderBatchOverview();
+                _setBatchOverviewStatus(`已加载：任务${Number(data?.meta?.task_count || 0)} 结果${Number(data?.meta?.result_count || 0)} 汇总${Number(data?.meta?.summary_count || 0)}`, 'success');
+            } catch (e) {
+                _setBatchOverviewStatus(`加载失败: ${e}`, 'error');
+            }
+        }
+
+        function openBatchTaskCsvPicker() {
+            const modal = document.getElementById('batch-task-csv-picker-modal');
+            if (modal) modal.classList.remove('hidden');
+            loadBatchTaskCsvList();
+        }
+
+        function closeBatchTaskCsvPicker() {
+            const modal = document.getElementById('batch-task-csv-picker-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function loadBatchTaskCsvList() {
+            const statusEl = document.getElementById('batch-task-csv-list-status');
+            const body = document.getElementById('batch-task-csv-list-body');
+            if (statusEl) statusEl.innerText = '加载中...';
+            if (body) body.innerHTML = '';
+            try {
+                const includeArchive = !!document.getElementById('batch-task-csv-include-archive')?.checked;
+                const params = new URLSearchParams({
+                    limit: '500',
+                    include_archive: includeArchive ? '1' : '0',
+                });
+                const res = await fetch(`/api/batch/tasks_csv/list?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '加载失败');
+                }
+                batchTaskCsvListRows = Array.isArray(data.files) ? data.files : [];
+                if (!batchTaskCsvListRows.length) {
+                    if (body) body.innerHTML = '<tr><td colspan="4" class="px-2 py-3 text-center text-slate-500">目录中暂无任务CSV</td></tr>';
+                } else if (body) {
+                    body.innerHTML = '';
+                    batchTaskCsvListRows.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'cursor-pointer hover:bg-slate-800/70';
+                        tr.onclick = () => applySelectedBatchTaskCsv(String(item.path || DEFAULT_TASKS_CSV));
+                        tr.innerHTML = `
+                            <td class="px-2 py-1 text-cyan-300 break-all">${String(item.path || '--')}</td>
+                            <td class="px-2 py-1 text-slate-300">${String(item.mtime || '--')}</td>
+                            <td class="px-2 py-1 text-right text-slate-300">${Number(item.size || 0)}</td>
+                            <td class="px-2 py-1 text-slate-300">${item.is_archive ? 'archive' : 'task'}</td>
+                        `;
+                        body.appendChild(tr);
+                    });
+                }
+                if (statusEl) statusEl.innerText = `已加载 ${batchTaskCsvListRows.length} 个文件`;
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `加载失败: ${e}`;
+            }
+        }
+
+        async function createBatchTaskCsvTemplate() {
+            const statusEl = document.getElementById('batch-task-csv-list-status');
+            if (statusEl) statusEl.innerText = '创建中...';
+            try {
+                const prefixEl = document.getElementById('batch-task-csv-new-prefix');
+                const overwrite = !!document.getElementById('batch-task-csv-new-overwrite')?.checked;
+                const rawPrefix = String(prefixEl?.value || '').trim();
+                const cleanPrefix = rawPrefix.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 48);
+                if (prefixEl) prefixEl.value = cleanPrefix;
+                const res = await fetch('/api/batch/tasks_csv/create_template', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prefix: cleanPrefix,
+                        overwrite
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '创建失败');
+                }
+                const newPath = _normalizeTaskCsvPath(String(data.path || DEFAULT_TASKS_CSV), DEFAULT_TASKS_CSV);
+                const bdmInput = document.getElementById('bdm-tasks-csv');
+                const blkInput = document.getElementById('blk-tasks-csv');
+                if (bdmInput) bdmInput.value = newPath;
+                if (blkInput) blkInput.value = newPath;
+                if (statusEl) statusEl.innerText = `创建成功：${newPath}`;
+                await loadBatchTaskCsvList();
+                await loadBatchTaskPreview();
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `创建失败: ${e}`;
+            }
+        }
+
+        function applySelectedBatchTaskCsv(path) {
+            try {
+                const normalized = _normalizeTaskCsvPath(path, DEFAULT_TASKS_CSV);
+                const bdmInput = document.getElementById('bdm-tasks-csv');
+                const blkInput = document.getElementById('blk-tasks-csv');
+                if (bdmInput) bdmInput.value = normalized;
+                if (blkInput) blkInput.value = normalized;
+                const statusEl = document.getElementById('bdm-task-preview-status');
+                if (statusEl) statusEl.innerText = `已选择任务文件：${normalized}`;
+                closeBatchTaskCsvPicker();
+                loadBatchTaskPreview();
+            } catch (e) {
+                const statusEl = document.getElementById('batch-task-csv-list-status');
+                if (statusEl) statusEl.innerText = `路径不合法: ${e}`;
+            }
+        }
+
+        async function loadBatchTaskPreview() {
+            const statusEl = document.getElementById('bdm-task-preview-status');
+            if (statusEl) statusEl.innerText = '任务预览加载中...';
+            try {
+                const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('bdm-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+                const tasksInput = document.getElementById('bdm-tasks-csv');
+                if (tasksInput) tasksInput.value = tasksCsv;
+                const batchFilter = _normalizeBatchFilterText(String(document.getElementById('bdm-batch-filter')?.value || '').trim());
+                const batchFilterInput = document.getElementById('bdm-batch-filter');
+                if (batchFilterInput) batchFilterInput.value = batchFilter;
+                const statusFilter = String(document.getElementById('bdm-status-filter')?.value || '').trim();
+                const limit = _readIntInput('bdm-preview-limit', { min: 20, max: 3000, fallback: 500 });
+                const params = new URLSearchParams({
+                    tasks_csv: tasksCsv,
+                    batch_no_filter: batchFilter,
+                    status_filter: statusFilter,
+                    limit: String(limit),
+                });
+                const res = await fetch(`/api/batch/tasks_preview?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '加载失败');
+                }
+                batchDashboardTaskRows = Array.isArray(data.rows) ? data.rows : [];
+                const pickedExists = batchDashboardTaskRows.some(x => String(x.task_id || '') === String(batchDashboardTaskSelectedId || ''));
+                if ((!batchDashboardTaskSelectedId || !pickedExists) && batchDashboardTaskRows.length) {
+                    batchDashboardTaskSelectedId = String(batchDashboardTaskRows[0].task_id || '');
+                }
+                renderBatchTaskPreviewTable();
+                const shown = batchDashboardTaskRows.length;
+                const total = Number(data.total || shown);
+                if (statusEl) statusEl.innerText = `任务预览已加载：显示 ${shown} / 匹配 ${total} | ${data.path || tasksCsv}`;
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `任务预览加载失败: ${e}`;
+            }
+        }
+
+        function renderBatchTaskPreviewTable() {
+            const body = document.getElementById('bdm-task-preview-body');
+            if (!body) return;
+            body.innerHTML = '';
+            if (!Array.isArray(batchDashboardTaskRows) || !batchDashboardTaskRows.length) {
+                body.innerHTML = '<tr><td colspan="6" class="px-2 py-3 text-center text-slate-500">暂无任务</td></tr>';
+                renderBatchTaskDetailById('');
+                return;
+            }
+            batchDashboardTaskRows.forEach(row => {
+                const tid = String(row.task_id || '');
+                const active = tid && tid === batchDashboardTaskSelectedId;
+                const tr = document.createElement('tr');
+                tr.className = `cursor-pointer hover:bg-slate-800/70 ${active ? 'bg-slate-800/80' : ''}`;
+                tr.onclick = () => {
+                    batchDashboardTaskSelectedId = tid;
+                    renderBatchTaskPreviewTable();
+                };
+                tr.innerHTML = `
+                    <td class="px-2 py-1 text-slate-300">${tid || '--'}</td>
+                    <td class="px-2 py-1 text-slate-300">${row.batch_no || '--'}</td>
+                    <td class="px-2 py-1 text-cyan-300">${row.stock_code || '--'}</td>
+                    <td class="px-2 py-1 text-white">${row.strategy_id || '--'}</td>
+                    <td class="px-2 py-1 text-slate-300">${row.start_date || '--'} ~ ${row.end_date || '--'}</td>
+                    <td class="px-2 py-1 text-slate-300">${row.status || '--'}</td>
+                `;
+                body.appendChild(tr);
+            });
+            renderBatchTaskDetailById(batchDashboardTaskSelectedId);
+        }
+
+        function renderBatchTaskDetailById(taskId) {
+            const body = document.getElementById('bdm-task-detail-body');
+            if (!body) return;
+            body.innerHTML = '';
+            const row = (Array.isArray(batchDashboardTaskRows) ? batchDashboardTaskRows : []).find(x => String(x.task_id || '') === String(taskId || ''));
+            if (!row) {
+                body.innerHTML = '<tr><td class="px-2 py-3 text-center text-slate-500">请先选择一条任务</td></tr>';
+                return;
+            }
+            const entries = [
+                ['任务ID', row.task_id], ['批次号', row.batch_no], ['优先级', row.priority], ['是否启用', row.enabled],
+                ['股票代码', row.stock_code], ['策略ID', row.strategy_id], ['开始日期', row.start_date], ['结束日期', row.end_date],
+                ['初始资金', row.capital], ['K线周期', row.kline_type], ['数据源', row.data_source], ['场景标签', row.scenario_tag],
+                ['成本档位', row.cost_profile], ['滑点BP', row.slippage_bp], ['佣金费率', row.commission_rate], ['印花税率', row.stamp_tax_rate],
+                ['最小手数', row.min_lot], ['是否T1', row.enforce_t1], ['最大重试', row.max_retry], ['任务状态', row.status],
+                ['报告ID', row.report_id], ['错误信息', row.error_msg], ['创建时间', row.created_at], ['更新时间', row.updated_at]
+            ];
+            entries.forEach(([k, v]) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td class="px-2 py-1 text-slate-400 w-28">${k}</td><td class="px-2 py-1 text-slate-200 break-all">${String(v || '--')}</td>`;
+                body.appendChild(tr);
+            });
+        }
+
+        function _collectBatchRunPayloadFromDashboard() {
+            const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('bdm-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+            const tasksInput = document.getElementById('bdm-tasks-csv');
+            if (tasksInput) tasksInput.value = tasksCsv;
+            const batchNoFilter = _normalizeBatchFilterText(String(document.getElementById('bdm-batch-filter')?.value || '').trim());
+            const batchFilterInput = document.getElementById('bdm-batch-filter');
+            if (batchFilterInput) batchFilterInput.value = batchNoFilter;
+            const maxTasks = _readIntInput('bdm-max-tasks', { min: 0, max: 500000, fallback: 0 });
+            const parallelWorkers = _readIntInput('bdm-workers', { min: 1, max: 64, fallback: 1 });
+            const archiveCompleted = !!document.getElementById('bdm-archive-completed')?.checked;
+            const archiveTasksCsv = _normalizeArchiveCsvPath(String(document.getElementById('bdm-archive-csv')?.value || DEFAULT_ARCHIVE_TASKS_CSV).trim(), DEFAULT_ARCHIVE_TASKS_CSV);
+            const archiveInput = document.getElementById('bdm-archive-csv');
+            if (archiveInput) archiveInput.value = archiveTasksCsv;
+            return {
+                tasks_csv: tasksCsv,
+                results_csv: 'data/批量回测结果.csv',
+                summary_csv: 'data/策略汇总评分.csv',
+                batch_no_filter: batchNoFilter,
+                archive_completed: archiveCompleted,
+                archive_tasks_csv: archiveTasksCsv,
+                max_tasks: maxTasks,
+                parallel_workers: parallelWorkers,
+                base_url: 'http://127.0.0.1:8000',
+                base_urls: '',
+                rate_limit_interval_seconds: 0,
+                poll_seconds: 3,
+                status_log_seconds: 90,
+                max_wait_seconds: 7200,
+                retry_sleep_seconds: 3
+            };
+        }
+
+        function _renderBatchRunStatusForDashboard(data) {
+            const running = !!data?.running;
+            const p = data?.progress || {};
+            const total = Number(p.total || 0);
+            const done = Number(p.success || 0) + Number(p.failed || 0);
+            const pct = total > 0 ? Math.max(0, Math.min(100, (done / total) * 100)) : 0;
+            const bar = document.getElementById('bdm-run-progress-bar');
+            if (bar) bar.style.width = `${pct.toFixed(1)}%`;
+            const progressText = document.getElementById('bdm-run-progress-text');
+            if (progressText) progressText.innerText = `进度 ${pct.toFixed(1)}% | total ${total} | pending ${Number(p.pending || 0)} | running ${Number(p.running || 0)} | success ${Number(p.success || 0)} | failed ${Number(p.failed || 0)}`;
+            const statusEl = document.getElementById('bdm-run-status');
+            if (statusEl) {
+                if (running) statusEl.innerText = `运行中 pid=${data?.pid || '--'}`;
+                else if (Number.isFinite(Number(data?.returncode)) && Number(data?.returncode) === 0) statusEl.innerText = '已完成 exit=0';
+                else if (Number.isFinite(Number(data?.returncode))) statusEl.innerText = `已结束 exit=${Number(data.returncode)}`;
+                else statusEl.innerText = '未启动';
+            }
+            const startBtn = document.getElementById('bdm-start-btn');
+            const stopBtn = document.getElementById('bdm-stop-btn');
+            if (startBtn) startBtn.disabled = running;
+            if (stopBtn) stopBtn.disabled = !running;
+            const logEl = document.getElementById('bdm-run-log-tail');
+            const logs = Array.isArray(data?.log_tail) ? data.log_tail : [];
+            if (logEl) logEl.innerText = logs.length ? logs.join('\n') : '--';
+        }
+
+        async function refreshBatchRunStatusForDashboard() {
+            try {
+                const payload = _collectBatchRunPayloadFromDashboard();
+                const params = new URLSearchParams({
+                    tasks_csv: payload.tasks_csv,
+                    batch_no_filter: payload.batch_no_filter || '',
+                    log_limit: '120'
+                });
+                const res = await fetch(`/api/batch/run/status?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '状态读取失败');
+                }
+                _renderBatchRunStatusForDashboard(data);
+                if (data.running) {
+                    if (batchRunPollTimer) clearTimeout(batchRunPollTimer);
+                    batchRunPollTimer = setTimeout(refreshBatchRunStatusForDashboard, 2500);
+                } else {
+                    loadBatchTaskPreview();
+                }
+            } catch (e) {
+                const statusEl = document.getElementById('bdm-run-status');
+                if (statusEl) statusEl.innerText = `状态失败: ${e}`;
+            }
+        }
+
+        async function startBatchRunFromDashboard() {
+            if (batchStartPendingDashboard) return;
+            const statusEl = document.getElementById('bdm-run-status');
+            const startBtn = document.getElementById('bdm-start-btn');
+            const stopBtn = document.getElementById('bdm-stop-btn');
+            batchStartPendingDashboard = true;
+            if (startBtn) startBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
+            if (statusEl) statusEl.innerText = '提交启动中...';
+            try {
+                await loadBatchTaskPreview();
+                const payload = _collectBatchRunPayloadFromDashboard();
+                const res = await fetch('/api/batch/run/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '启动失败');
+                }
+                if (statusEl) statusEl.innerText = `已启动 pid=${data.pid || '--'}`;
+                refreshBatchRunStatusForDashboard();
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `启动失败: ${e}`;
+                if (startBtn) startBtn.disabled = false;
+            } finally {
+                batchStartPendingDashboard = false;
+            }
+        }
+
+        async function stopBatchRunFromDashboard() {
+            const statusEl = document.getElementById('bdm-run-status');
+            if (statusEl) statusEl.innerText = '停止中...';
+            try {
+                const res = await fetch('/api/batch/run/stop', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '停止失败');
+                }
+                if (statusEl) statusEl.innerText = data.msg || '已停止';
+                if (batchRunPollTimer) {
+                    clearTimeout(batchRunPollTimer);
+                    batchRunPollTimer = null;
+                }
+                refreshBatchRunStatusForDashboard();
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `停止失败: ${e}`;
+            }
+        }
+
+        function _collectBatchRunPayload() {
+            const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+            const tasksInput = document.getElementById('blk-tasks-csv');
+            if (tasksInput) tasksInput.value = tasksCsv;
+            const batchNoFilter = _normalizeBatchFilterText(String(document.getElementById('batch-run-batch-filter')?.value || '').trim());
+            const batchFilterInput = document.getElementById('batch-run-batch-filter');
+            if (batchFilterInput) batchFilterInput.value = batchNoFilter;
+            const maxTasks = _readIntInput('batch-run-max-tasks', { min: 0, max: 500000, fallback: 0 });
+            const parallelWorkers = _readIntInput('batch-run-workers', { min: 1, max: 64, fallback: 1 });
+            const archiveCompleted = !!document.getElementById('batch-run-archive-completed')?.checked;
+            const archiveTasksCsv = DEFAULT_ARCHIVE_TASKS_CSV;
+            return {
+                tasks_csv: tasksCsv,
+                results_csv: 'data/批量回测结果.csv',
+                summary_csv: 'data/策略汇总评分.csv',
+                batch_no_filter: batchNoFilter,
+                archive_completed: archiveCompleted,
+                archive_tasks_csv: archiveTasksCsv,
+                max_tasks: maxTasks,
+                parallel_workers: parallelWorkers,
+                base_url: 'http://127.0.0.1:8000',
+                base_urls: '',
+                rate_limit_interval_seconds: 0,
+                poll_seconds: 3,
+                status_log_seconds: 90,
+                max_wait_seconds: 7200,
+                retry_sleep_seconds: 3
+            };
+        }
+
+        function _setBatchRunStatusText(text, level = 'info') {
+            const el = document.getElementById('batch-run-status');
+            if (!el) return;
+            el.innerText = String(text || '');
+            el.className = `text-[11px] font-mono ${level === 'error' ? 'text-rose-300' : (level === 'success' ? 'text-emerald-300' : 'text-slate-400')}`;
+        }
+
+        function _renderBatchRunStatus(data) {
+            batchRunStatusPayload = data || {};
+            const running = !!data?.running;
+            const p = data?.progress || {};
+            const total = Number(p.total || 0);
+            const done = Number(p.success || 0) + Number(p.failed || 0);
+            const pct = total > 0 ? Math.max(0, Math.min(100, (done / total) * 100)) : 0;
+            const bar = document.getElementById('batch-run-progress-bar');
+            if (bar) bar.style.width = `${pct.toFixed(1)}%`;
+            const progressText = document.getElementById('batch-run-progress-text');
+            if (progressText) {
+                progressText.innerText = `进度 ${pct.toFixed(1)}% | total ${total} | pending ${Number(p.pending || 0)} | running ${Number(p.running || 0)} | success ${Number(p.success || 0)} | failed ${Number(p.failed || 0)}`;
+            }
+            if (running) {
+                _setBatchRunStatusText(`运行中 pid=${data?.pid || '--'}`, 'success');
+            } else if (Number.isFinite(Number(data?.returncode)) && Number(data?.returncode) !== 0) {
+                _setBatchRunStatusText(`已结束 exit=${Number(data.returncode)}`, 'error');
+            } else if (Number.isFinite(Number(data?.returncode)) && Number(data?.returncode) === 0) {
+                _setBatchRunStatusText('已完成 exit=0', 'success');
+            } else {
+                _setBatchRunStatusText('未启动', 'info');
+            }
+            const startBtn = document.getElementById('batch-run-start-btn');
+            const stopBtn = document.getElementById('batch-run-stop-btn');
+            if (startBtn) startBtn.disabled = running;
+            if (stopBtn) stopBtn.disabled = !running;
+            const logEl = document.getElementById('batch-run-log-tail');
+            const logs = Array.isArray(data?.log_tail) ? data.log_tail : [];
+            if (logEl) logEl.innerText = logs.length ? logs.join('\n') : '--';
+        }
+
+        function _scheduleBatchRunStatusPoll() {
+            if (batchRunPollTimer) clearTimeout(batchRunPollTimer);
+            batchRunPollTimer = setTimeout(refreshBatchRunStatus, 2500);
+        }
+
+        async function refreshBatchRunStatus() {
+            try {
+                const payload = _collectBatchRunPayload();
+                const params = new URLSearchParams({
+                    tasks_csv: payload.tasks_csv,
+                    batch_no_filter: payload.batch_no_filter || '',
+                    log_limit: '120'
+                });
+                const res = await fetch(`/api/batch/run/status?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '状态读取失败');
+                }
+                _renderBatchRunStatus(data);
+                if (data.running) {
+                    _scheduleBatchRunStatusPoll();
+                } else {
+                    loadBatchOverview();
+                }
+            } catch (e) {
+                _setBatchRunStatusText(`状态失败: ${e}`, 'error');
+            }
+        }
+
+        async function startBatchRunFromUi() {
+            if (batchStartPendingUi) return;
+            const startBtn = document.getElementById('batch-run-start-btn');
+            const stopBtn = document.getElementById('batch-run-stop-btn');
+            batchStartPendingUi = true;
+            if (startBtn) startBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
+            _setBatchRunStatusText('提交启动中...');
+            try {
+                const payload = _collectBatchRunPayload();
+                const res = await fetch('/api/batch/run/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '启动失败');
+                }
+                _setBatchRunStatusText(`已启动 pid=${data.pid || '--'}`, 'success');
+                logMessage('SYSTEM', `批量执行已启动 pid=${data.pid || '--'}`, 'warning');
+                refreshBatchRunStatus();
+            } catch (e) {
+                _setBatchRunStatusText(`启动失败: ${e}`, 'error');
+                if (startBtn) startBtn.disabled = false;
+            } finally {
+                batchStartPendingUi = false;
+            }
+        }
+
+        async function stopBatchRunFromUi() {
+            _setBatchRunStatusText('停止中...');
+            try {
+                const res = await fetch('/api/batch/run/stop', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || '停止失败');
+                }
+                _setBatchRunStatusText(data.msg || '已停止', 'success');
+                logMessage('SYSTEM', data.msg || '批量执行已停止', 'warning');
+                if (batchRunPollTimer) {
+                    clearTimeout(batchRunPollTimer);
+                    batchRunPollTimer = null;
+                }
+                refreshBatchRunStatus();
+            } catch (e) {
+                _setBatchRunStatusText(`停止失败: ${e}`, 'error');
+            }
+        }
+
+        function renderBatchOverview() {
+            const payload = batchOverviewPayload || {};
+            const chips = document.getElementById('batch-overview-chips');
+            const batchWrap = document.getElementById('batch-overview-batches');
+            const stratWrap = document.getElementById('batch-overview-strategies');
+            if (!chips || !batchWrap || !stratWrap) return;
+            const statusMap = payload.task_status && typeof payload.task_status === 'object' ? payload.task_status : {};
+            const total = Number(payload?.meta?.task_count || 0);
+            const pending = Number(statusMap.pending || 0);
+            const running = Number(statusMap.running || 0);
+            const retry = Number(statusMap.retry || 0);
+            const success = Number(statusMap.success || 0);
+            const failed = Number(statusMap.failed || 0);
+            chips.innerHTML = `
+                <span class="px-2 py-1 rounded border border-slate-600 text-slate-200 bg-slate-900">任务总数 ${total}</span>
+                <span class="px-2 py-1 rounded border border-amber-600 text-amber-300 bg-amber-900/20">待执行 ${pending + retry}</span>
+                <span class="px-2 py-1 rounded border border-cyan-600 text-cyan-300 bg-cyan-900/20">运行中 ${running}</span>
+                <span class="px-2 py-1 rounded border border-emerald-600 text-emerald-300 bg-emerald-900/20">成功 ${success}</span>
+                <span class="px-2 py-1 rounded border border-rose-600 text-rose-300 bg-rose-900/20">失败 ${failed}</span>
+            `;
+            const batches = Array.isArray(payload.batch_stats) ? payload.batch_stats : [];
+            batchWrap.innerHTML = '';
+            if (!batches.length) {
+                batchWrap.innerHTML = '<div class="text-[11px] text-slate-500">暂无批次数据</div>';
+            } else {
+                batches.forEach(item => {
+                    const totalCount = Math.max(1, Number(item.total || 0));
+                    const doneCount = Number(item.success || 0) + Number(item.failed || 0);
+                    const donePct = Math.max(0, Math.min(100, (doneCount / totalCount) * 100));
+                    const row = document.createElement('div');
+                    row.className = 'bg-slate-900 border border-slate-700 rounded px-2 py-1.5';
+                    row.innerHTML = `
+                        <div class="flex items-center justify-between text-[11px] mb-1">
+                            <span class="text-white font-semibold">${item.batch_no || 'GEN'}</span>
+                            <span class="text-slate-400">${doneCount}/${totalCount}</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
+                            <div class="h-full bg-emerald-500" style="width:${donePct.toFixed(1)}%"></div>
+                        </div>
+                        <div class="mt-1 text-[10px] text-slate-400">pending ${Number(item.pending || 0)} | running ${Number(item.running || 0)} | success ${Number(item.success || 0)} | failed ${Number(item.failed || 0)}</div>
+                    `;
+                    batchWrap.appendChild(row);
+                });
+            }
+            const topStrategies = (Array.isArray(payload.strategy_board) ? payload.strategy_board : []).slice(0, 10);
+            stratWrap.innerHTML = '';
+            if (!topStrategies.length) {
+                stratWrap.innerHTML = '<div class="text-[11px] text-slate-500">暂无策略汇总</div>';
+            } else {
+                topStrategies.forEach((s, idx) => {
+                    const row = document.createElement('div');
+                    row.className = 'bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-[11px]';
+                    row.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <span class="text-white">#${idx + 1} ${s.strategy_id || '--'}</span>
+                            <span class="text-cyan-300">score ${_fmtNum(s.median_score_final, 2)}</span>
+                        </div>
+                        <div class="text-slate-400">年化 ${_fmtPct(s.median_annualized_return, 2)} | 回撤 ${_fmtPct(s.median_max_drawdown, 2)} | 胜率 ${_fmtPct(s.median_win_rate, 1)}</div>
+                    `;
+                    stratWrap.appendChild(row);
+                });
+            }
+            renderBatchOverviewDetailTable();
+        }
+
+        function renderBatchOverviewDetailTable() {
+            const body = document.getElementById('batch-overview-table-body');
+            if (!body) return;
+            const payload = batchOverviewPayload || {};
+            const q = String(document.getElementById('batch-overview-filter')?.value || '').trim().toLowerCase();
+            const rows = Array.isArray(payload.recent_results) ? payload.recent_results : [];
+            const filtered = q
+                ? rows.filter(r => {
+                    const text = `${r.task_id || ''}|${r.batch_no || ''}|${r.stock_code || ''}|${r.strategy_id || ''}|${r.report_id || ''}`.toLowerCase();
+                    return text.includes(q);
+                })
+                : rows;
+            body.innerHTML = '';
+            if (!filtered.length) {
+                body.innerHTML = '<tr><td colspan="9" class="px-2 py-3 text-center text-slate-500">暂无数据</td></tr>';
+                return;
+            }
+            filtered.slice(0, 300).forEach(r => {
+                const annualCls = Number(r.annualized_return || 0) >= 0 ? 'text-emerald-300' : 'text-rose-300';
+                const scoreCls = Number(r.score_final || 0) >= 70 ? 'text-emerald-300' : (Number(r.score_final || 0) >= 50 ? 'text-amber-300' : 'text-rose-300');
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/60';
+                tr.innerHTML = `
+                    <td class="px-2 py-1 text-slate-300">${r.task_id || '--'}</td>
+                    <td class="px-2 py-1 text-slate-300">${r.batch_no || '--'}</td>
+                    <td class="px-2 py-1 text-cyan-300">${r.stock_code || '--'}</td>
+                    <td class="px-2 py-1 text-white">${r.strategy_id || '--'}</td>
+                    <td class="px-2 py-1 ${annualCls}">${_fmtPct(r.annualized_return, 2)}</td>
+                    <td class="px-2 py-1 text-rose-300">${_fmtPct(r.max_drawdown, 2)}</td>
+                    <td class="px-2 py-1 text-slate-200">${_fmtPct(r.win_rate, 1)}</td>
+                    <td class="px-2 py-1 ${scoreCls}">${_fmtNum(r.score_final, 2)}</td>
+                    <td class="px-2 py-1 text-slate-400">${r.report_id || '--'}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        function buildBacktestCombinationConfig() {
+            const mode = String(document.getElementById('bt-combo-mode')?.value || 'or').trim().toLowerCase() || 'or';
+            const minAgreeRaw = Number(document.getElementById('bt-combo-min-agree')?.value || 1);
+            const minAgree = Number.isFinite(minAgreeRaw) && minAgreeRaw >= 1 ? Math.floor(minAgreeRaw) : 1;
+            const tiePolicy = String(document.getElementById('bt-combo-tie-policy')?.value || 'skip').trim().toLowerCase() || 'skip';
+            const weightsText = String(document.getElementById('bt-combo-weights')?.value || '').trim();
+            const weights = {};
+            if (weightsText) {
+                weightsText.split(',').forEach(pair => {
+                    const p = String(pair || '').trim();
+                    if (!p || !p.includes('=')) return;
+                    const [sidRaw, wRaw] = p.split('=');
+                    const sid = String(sidRaw || '').trim();
+                    const w = Number(String(wRaw || '').trim());
+                    if (!sid || !Number.isFinite(w)) return;
+                    weights[sid] = w;
+                });
+            }
+            return {
+                enabled: true,
+                mode,
+                min_agree_count: minAgree,
+                tie_policy: tiePolicy,
+                weights
+            };
+        }
+
         function toggleLiveParamsDrawer(forceOpen = null) {
             const drawer = document.getElementById('live-params-drawer');
             if (!drawer) return;
@@ -5783,6 +7563,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             try {
                 const res = await fetch('/api/status/light');
                 const data = await res.json();
+                const nextBootId = String(data.server_boot_id || '').trim();
+                if (nextBootId) currentServerBootId = nextBootId;
                 liveEnabled = data.live_enabled !== false;
                 const runningCodes = Array.isArray(data.live_running_codes) ? data.live_running_codes : [];
                 const liveStrategyProfiles = (data.live_strategy_profiles && typeof data.live_strategy_profiles === 'object')
@@ -5809,7 +7591,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                         : !backtestStartInFlight;
                     if (reportTracked) {
                         if (reportStatus === 'failed' || reportError) {
-                            setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                            handleBacktestFailure(reportError || '回测任务异常终止');
                         } else if (successLike || stoppedLike) {
                             setBacktestButtonState(BACKTEST_BTN_STATE.idle);
                         }
@@ -6195,6 +7977,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const icon = document.getElementById('backtest-trigger-icon');
             const label = document.getElementById('backtest-trigger-label');
             if (!btn || !icon || !label) return;
+            if (state === BACKTEST_BTN_STATE.error) {
+                state = BACKTEST_BTN_STATE.idle;
+            }
             backtestBtnState = state;
             if (backtestStatusMonitorTimer) {
                 clearTimeout(backtestStatusMonitorTimer);
@@ -6202,27 +7987,51 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             }
             if (state === BACKTEST_BTN_STATE.running) {
                 btn.className = 'bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-rose-500 min-w-[128px]';
-                btn.disabled = false;
                 icon.className = 'fa-solid fa-stop';
                 label.innerText = '终止回测';
+                btn.disabled = false;
                 backtestMonitorErrorCount = 0;
                 backtestNoRunningTicks = 0;
+                backtestStopInFlight = false;
                 monitorBacktestTaskStatus();
                 return;
             }
             btn.disabled = false;
             backtestStartInFlight = false;
+            backtestStopInFlight = false;
             currentBacktestReportId = '';
             backtestNoRunningTicks = 0;
-            if (state === BACKTEST_BTN_STATE.error) {
-                btn.className = 'bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-red-500 min-w-[128px]';
-                icon.className = 'fa-solid fa-triangle-exclamation';
-                label.innerText = '回测异常';
-                return;
-            }
             btn.className = 'bg-trading-blue hover:bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm transition-all shadow-[0_0_10px_rgba(59,130,246,0.3)] border border-blue-500 min-w-[128px]';
             icon.className = 'fa-solid fa-play';
-            label.innerText = '立即回测';
+            label.innerText = '单票回测';
+        }
+
+        function handleBacktestFailure(message) {
+            const msg = String(message || '回测失败');
+            closeBacktestStream();
+            renderBacktestFlow({ module: '工部', level: 'danger', msg });
+            logMessage('回测', msg, 'danger');
+            setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+        }
+
+        function setBacktestStopPending(pending) {
+            const btn = document.getElementById('backtest-trigger-btn');
+            const icon = document.getElementById('backtest-trigger-icon');
+            const label = document.getElementById('backtest-trigger-label');
+            if (!btn || !icon || !label) return;
+            if (backtestBtnState !== BACKTEST_BTN_STATE.running) return;
+            backtestStopInFlight = !!pending;
+            if (pending) {
+                btn.disabled = true;
+                btn.className = 'bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-amber-500 min-w-[128px]';
+                icon.className = 'fa-solid fa-spinner fa-spin';
+                label.innerText = '终止中...';
+                return;
+            }
+            btn.disabled = false;
+            btn.className = 'bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded font-bold text-sm transition-all border border-rose-500 min-w-[128px]';
+            icon.className = 'fa-solid fa-stop';
+            label.innerText = '终止回测';
         }
 
         async function monitorBacktestTaskStatus() {
@@ -6256,9 +8065,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     backtestNoRunningTicks += 1;
                 }
                 if (reportTracked && (reportStatus === 'failed' || reportError)) {
-                    closeBacktestStream();
-                    logMessage('回测', reportError || '回测任务异常终止', 'danger');
-                    setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                    handleBacktestFailure(reportError || '回测任务异常终止');
                     return;
                 }
                 if (reportTracked && reportStatus === 'cancelled') {
@@ -6286,8 +8093,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             } catch (e) {
                 backtestMonitorErrorCount += 1;
                 if (backtestMonitorErrorCount >= 2) {
-                    logMessage('回测', `状态检测失败: ${e}`, 'danger');
-                    setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                    handleBacktestFailure(`状态检测失败: ${e}`);
                     return;
                 }
             }
@@ -6331,25 +8137,48 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         }
 
         async function stopBacktest() {
+            if (backtestBtnState !== BACKTEST_BTN_STATE.running) return;
+            if (backtestStopInFlight) return;
+            setBacktestStopPending(true);
+            logMessage('回测', '正在强制快速终止...', 'warning');
             try {
-                const res = await fetch('/api/control/stop', { method: 'POST' });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    logMessage('回测', '已发送终止请求', 'warning');
-                } else {
-                    logMessage('回测', data.msg || '当前没有运行中的回测任务', 'warning');
+                const { res, data } = await fetchJsonWithTimeout('/api/control/stop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force_fast: true })
+                }, 4000);
+                const status = String(data?.status || '').toLowerCase();
+                const released = Boolean(data?.cleanup_state?.released_task_ref);
+                if (res.ok && (status === 'success' || status === 'info')) {
                     closeBacktestStream();
                     setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+                    if (released) {
+                        logMessage('回测', data?.msg || '已强制快速终止', 'warning');
+                    } else {
+                        logMessage('回测', '终止请求已受理，后端仍在清理中（前端已释放操作）', 'warning');
+                    }
+                    syncStatus();
+                } else {
+                    logMessage('回测', data?.msg || `终止失败(${res.status})`, 'danger');
+                    setBacktestStopPending(false);
                 }
             } catch (e) {
-                logMessage('回测', `终止失败: ${e}`, 'danger');
-                setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                const msg = String(e?.message || e || '');
+                if (msg.includes('aborted')) {
+                    closeBacktestStream();
+                    setBacktestButtonState(BACKTEST_BTN_STATE.idle);
+                    logMessage('回测', '终止请求超时，前端已释放操作；后台将继续清理', 'warning');
+                    syncStatus();
+                } else {
+                    logMessage('回测', `终止失败: ${e}`, 'danger');
+                    setBacktestStopPending(false);
+                }
             }
         }
 
         async function startBacktest() {
             if (backtestBtnState === BACKTEST_BTN_STATE.running) {
-                stopBacktest();
+                await stopBacktest();
                 return;
             }
             const overlay = document.getElementById('backtest-overlay');
@@ -6406,6 +8235,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                     stock_code: code,
                     strategy_id: strategy,
                     strategy_ids: picked.length && picked.length !== strategyCatalog.length ? picked : null,
+                    combination_config: buildBacktestCombinationConfig(),
                     start: dates.start,
                     end: dates.end,
                     capital: capital
@@ -6417,8 +8247,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             } catch (e) {
                 backtestStartInFlight = false;
                 currentBacktestReportId = '';
-                logMessage('回测', `启动失败: ${e}`, 'danger');
-                setBacktestButtonState(BACKTEST_BTN_STATE.error);
+                handleBacktestFailure(`启动失败: ${e}`);
             }
         }
 
@@ -7230,7 +9059,9 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         }
 
         // UI Helpers
-        const getTime = () => new Date().toLocaleTimeString('en-GB', { hour12: false });
+        function getTime() {
+            return new Date().toLocaleTimeString('en-GB', { hour12: false });
+        }
         const formatClockTime = (v) => {
             const text = String(v || '').trim();
             if (!text) return '';
@@ -7352,28 +9183,82 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
 
         function enterSystemByDisclaimer() {
             const overlay = document.getElementById('disclaimer-overlay');
-            if (!overlay || !disclaimerAccepted) return;
+            const checkbox = document.getElementById('disclaimer-agree-checkbox');
+            const accepted = !!(checkbox && checkbox.checked);
+            disclaimerAccepted = accepted;
+            if (!overlay || !accepted) return;
+            try {
+                localStorage.setItem(DISCLAIMER_ACCEPT_KEY, JSON.stringify({
+                    accepted: true,
+                    ts: Date.now()
+                }));
+                if (currentServerBootId) {
+                    localStorage.setItem(DISCLAIMER_LAST_BOOT_KEY, currentServerBootId);
+                }
+            } catch (_) {}
             overlay.classList.remove('active');
         }
 
-        function applyInitialDisclaimerState() {
+        async function applyInitialDisclaimerState() {
             const checkbox = document.getElementById('disclaimer-agree-checkbox');
             let skipOnce = false;
+            let forceRecheck = false;
+            let acceptedPersisted = false;
+            let acceptedBootId = '';
+            let liveBootId = '';
             try {
                 skipOnce = sessionStorage.getItem(DISCLAIMER_SKIP_ONCE_KEY) === '1';
                 if (skipOnce) sessionStorage.removeItem(DISCLAIMER_SKIP_ONCE_KEY);
+                forceRecheck = sessionStorage.getItem(DISCLAIMER_FORCE_RECHECK_KEY) === '1';
+                if (forceRecheck) sessionStorage.removeItem(DISCLAIMER_FORCE_RECHECK_KEY);
             } catch (_) {}
-            if (skipOnce) {
+            try {
+                const raw = localStorage.getItem(DISCLAIMER_ACCEPT_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const ts = Number(parsed && parsed.ts ? parsed.ts : 0);
+                    const accepted = !!(parsed && parsed.accepted);
+                    const notExpired = ts > 0 && (Date.now() - ts) <= DISCLAIMER_ACCEPT_TTL_MS;
+                    acceptedPersisted = accepted && notExpired;
+                }
+                acceptedBootId = String(localStorage.getItem(DISCLAIMER_LAST_BOOT_KEY) || '').trim();
+                if (forceRecheck || !acceptedPersisted) {
+                    localStorage.removeItem(DISCLAIMER_ACCEPT_KEY);
+                    localStorage.removeItem(DISCLAIMER_LAST_BOOT_KEY);
+                    acceptedPersisted = false;
+                }
+            } catch (_) {
+                acceptedPersisted = false;
+            }
+            try {
+                const { res, data } = await fetchJsonWithTimeout('/api/status/light', {}, 5000);
+                if (res.ok) {
+                    liveBootId = String(data?.server_boot_id || '').trim();
+                    if (liveBootId) currentServerBootId = liveBootId;
+                }
+            } catch (_) {}
+            if (!skipOnce && acceptedPersisted && liveBootId) {
+                if (!acceptedBootId || acceptedBootId !== liveBootId) {
+                    forceRecheck = true;
+                    acceptedPersisted = false;
+                    try {
+                        localStorage.removeItem(DISCLAIMER_ACCEPT_KEY);
+                        localStorage.removeItem(DISCLAIMER_LAST_BOOT_KEY);
+                    } catch (_) {}
+                }
+            }
+            if (skipOnce || acceptedPersisted) {
                 disclaimerAccepted = true;
                 if (checkbox) checkbox.checked = true;
             }
             updateDisclaimerAccess();
-            if (skipOnce) enterSystemByDisclaimer();
+            if (skipOnce || acceptedPersisted) enterSystemByDisclaimer();
         }
         
         // Initial Log
         logMessage('SYSTEM', '控制台就绪，等待连接...', 'info');
         restoreConsoleState();
+        loadOpsHubPinState();
         applyInitialDisclaimerState();
         document.getElementById('disclaimer-agree-checkbox')?.addEventListener('change', updateDisclaimerAccess);
         document.getElementById('disclaimer-enter-btn')?.addEventListener('click', enterSystemByDisclaimer);
@@ -7382,6 +9267,17 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         });
         document.getElementById('webhook-retry-modal')?.addEventListener('click', (e) => {
             if (e.target && e.target.id === 'webhook-retry-modal') closeWebhookRetryCenter();
+        });
+        document.addEventListener('keydown', (e) => {
+            try {
+                const hardReload = !!(e && e.ctrlKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'f5');
+                if (hardReload) {
+                    sessionStorage.setItem(DISCLAIMER_FORCE_RECHECK_KEY, '1');
+                }
+            } catch (_) {}
+            if (e && e.key === 'Escape') {
+                closeOpsHubModal();
+            }
         });
         window.addEventListener('resize', () => {
             const container = document.getElementById('kline-modal-chart');

@@ -3,6 +3,7 @@ import asyncio
 import pandas as pd
 from datetime import datetime, timedelta
 from time import perf_counter
+from typing import Dict, List
 from src.core.crown_prince import CrownPrince
 from src.core.zhongshu_sheng import ZhongshuSheng
 from src.core.menxia_sheng import MenxiaSheng
@@ -27,13 +28,23 @@ class BacktestCabinet:
     _tf_cache = {}
     _tf_cache_limit = 24
 
-    def __init__(self, stock_code, strategy_id='all', initial_capital=1000000.0, event_callback=None, strategy_mode=None, strategy_ids=None):
+    def __init__(
+        self,
+        stock_code,
+        strategy_id='all',
+        initial_capital=1000000.0,
+        event_callback=None,
+        strategy_mode=None,
+        strategy_ids=None,
+        combination_config=None,
+    ):
         self.stock_code = stock_code
         self.strategy_id = strategy_id
         self.initial_capital = initial_capital
         self.event_callback = event_callback
         self.strategy_mode = strategy_mode
         self.strategy_ids = strategy_ids
+        self.combination_config = self._normalize_combination_config(combination_config)
         self.config = ConfigLoader.reload()
         self.baseline_meta = {
             "profile_name": str(self.config.get("global_backtest_baseline.last_applied_profile", "") or ""),
@@ -83,6 +94,119 @@ class BacktestCabinet:
         
         for s in self.strategies:
             self.personnel.register_strategy(s)
+
+    def _normalize_combination_config(self, cfg):
+        if not isinstance(cfg, dict):
+            return {"enabled": False, "mode": "or", "min_agree_count": 1, "weights": {}, "tie_policy": "skip"}
+        mode = str(cfg.get("mode", "or") or "or").strip().lower()
+        if mode not in {"and", "or", "vote"}:
+            mode = "or"
+        enabled = bool(cfg.get("enabled", True))
+        min_agree_count = int(cfg.get("min_agree_count", 1) or 1)
+        if min_agree_count < 1:
+            min_agree_count = 1
+        weights_raw = cfg.get("weights") if isinstance(cfg.get("weights"), dict) else {}
+        weights = {}
+        for k, v in weights_raw.items():
+            sid = str(k or "").strip()
+            if not sid:
+                continue
+            try:
+                w = float(v)
+            except Exception:
+                w = 1.0
+            weights[sid] = max(0.0, w)
+        tie_policy = str(cfg.get("tie_policy", "skip") or "skip").strip().lower()
+        if tie_policy not in {"skip", "buy", "sell"}:
+            tie_policy = "skip"
+        return {
+            "enabled": enabled,
+            "mode": mode,
+            "min_agree_count": min_agree_count,
+            "weights": weights,
+            "tie_policy": tie_policy,
+        }
+
+    def _apply_signal_combination(self, signals, runnable_strategy_ids):
+        cfg = self.combination_config if isinstance(self.combination_config, dict) else {}
+        if not bool(cfg.get("enabled", False)):
+            return list(signals or []), {"enabled": False, "mode": "or", "kept": len(signals or [])}
+        mode = str(cfg.get("mode", "or") or "or").strip().lower()
+        incoming = list(signals or [])
+        if not incoming:
+            return [], {"enabled": True, "mode": mode, "kept": 0, "reason": "no_signal"}
+        by_sid = {}
+        for sig in incoming:
+            sid = str(sig.get("strategy_id", "")).strip()
+            if sid and sid not in by_sid:
+                by_sid[sid] = sig
+        target_ids = [str(x).strip() for x in (runnable_strategy_ids or []) if str(x).strip()]
+        if mode == "or":
+            return incoming, {"enabled": True, "mode": "or", "kept": len(incoming)}
+        if mode == "and":
+            if not target_ids:
+                return [], {"enabled": True, "mode": "and", "kept": 0, "reason": "no_target"}
+            if any(sid not in by_sid for sid in target_ids):
+                return [], {"enabled": True, "mode": "and", "kept": 0, "reason": "not_all_signaled"}
+            dirs = {str(by_sid[sid].get("direction", "")).upper() for sid in target_ids}
+            if len(dirs) != 1:
+                return [], {"enabled": True, "mode": "and", "kept": 0, "reason": "direction_conflict"}
+            agreed_direction = list(dirs)[0]
+            kept = [by_sid[sid] for sid in target_ids if sid in by_sid and str(by_sid[sid].get("direction", "")).upper() == agreed_direction]
+            min_agree = int(cfg.get("min_agree_count", 1) or 1)
+            if len(kept) < min_agree:
+                return [], {"enabled": True, "mode": "and", "kept": 0, "reason": "below_min_agree"}
+            return kept, {"enabled": True, "mode": "and", "kept": len(kept), "direction": agreed_direction}
+        if mode == "vote":
+            weights = cfg.get("weights") if isinstance(cfg.get("weights"), dict) else {}
+            buy_score = 0.0
+            sell_score = 0.0
+            for sid, sig in by_sid.items():
+                w = float(weights.get(sid, 1.0) or 1.0)
+                d = str(sig.get("direction", "")).upper()
+                if d == "BUY":
+                    buy_score += w
+                elif d == "SELL":
+                    sell_score += w
+            tie_policy = str(cfg.get("tie_policy", "skip") or "skip").strip().lower()
+            winner = ""
+            if buy_score > sell_score:
+                winner = "BUY"
+            elif sell_score > buy_score:
+                winner = "SELL"
+            elif tie_policy == "buy":
+                winner = "BUY"
+            elif tie_policy == "sell":
+                winner = "SELL"
+            if not winner:
+                return [], {
+                    "enabled": True,
+                    "mode": "vote",
+                    "kept": 0,
+                    "reason": "tie_skip",
+                    "buy_score": round(buy_score, 4),
+                    "sell_score": round(sell_score, 4),
+                }
+            kept = [sig for sig in by_sid.values() if str(sig.get("direction", "")).upper() == winner]
+            min_agree = int(cfg.get("min_agree_count", 1) or 1)
+            if len(kept) < min_agree:
+                return [], {
+                    "enabled": True,
+                    "mode": "vote",
+                    "kept": 0,
+                    "reason": "below_min_agree",
+                    "buy_score": round(buy_score, 4),
+                    "sell_score": round(sell_score, 4),
+                }
+            return kept, {
+                "enabled": True,
+                "mode": "vote",
+                "kept": len(kept),
+                "winner": winner,
+                "buy_score": round(buy_score, 4),
+                "sell_score": round(sell_score, 4),
+            }
+        return incoming, {"enabled": True, "mode": "or", "kept": len(incoming)}
 
     def _cache_key(self, start_date, end_date, interval, provider_source):
         return (
@@ -769,11 +893,18 @@ class BacktestCabinet:
                     runnable_strategy_ids=runnable_strategy_ids,
                     strategy_context={"__by_strategy__": strategy_context, "__kline_by_strategy__": strategy_kline_map}
                 )
+                signals, combo_meta = self._apply_signal_combination(signals, runnable_strategy_ids)
                 if signals:
                     await self._emit('backtest_flow', {
                         'module': '中书省',
                         'level': 'warning',
                         'msg': f"{current_dt} 触发 {len(signals)} 条候选交易信号（策略: {','.join([s['strategy_id'] for s in signals])}）"
+                    })
+                if isinstance(combo_meta, dict) and bool(combo_meta.get("enabled", False)):
+                    await self._emit('backtest_flow', {
+                        'module': '中书省',
+                        'level': 'system',
+                        'msg': f"组合过滤 mode={combo_meta.get('mode')} kept={combo_meta.get('kept')} meta={combo_meta}"
                     })
                 for signal in signals:
                     op_counter += 1

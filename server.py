@@ -1,6 +1,7 @@
 
 import asyncio
 import argparse
+import csv
 import json
 import os
 import importlib
@@ -13,6 +14,8 @@ import urllib.request
 import urllib.error
 import io
 import subprocess
+import threading
+import uuid
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -20,7 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.lines as mlines
 from matplotlib import font_manager
 from datetime import datetime, timedelta
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -52,6 +55,8 @@ from src.utils.postgres_provider import PostgresProvider
 from src.utils.history_sync_service import HistoryDiffSyncService, TABLE_INTERVAL_MAP, DEFAULT_SYNC_TABLES
 from src.utils.backtest_baseline import apply_backtest_baseline
 from src.utils.webhook_notifier import WebhookNotifier
+from src.tdx.formula_compiler import compile_tdx_formula
+from src.utils.blk_loader import parse_blk_file, parse_blk_text
 
 import logging
 
@@ -189,6 +194,65 @@ SECRET_CONFIG_PATHS = set(ConfigLoader._default_private_override_paths)
 PRIVATE_ONLY_CONFIG_PATHS = {"targets", "strategies.active_ids"}
 SECRET_MASK = "********"
 LIVE_FUND_POOL_DIR = os.path.join("data", "live_fund_pool")
+PROJECT_ROOT = os.path.abspath(".")
+BATCH_TASKS_DIR = os.path.join("data", "batch_tasks")
+SERVER_STARTED_AT = datetime.now().isoformat(timespec="seconds")
+SERVER_BOOT_ID = f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+DEFAULT_BATCH_TASKS_CSV = os.path.join(BATCH_TASKS_DIR, "批量回测任务.csv")
+DEFAULT_BATCH_ARCHIVE_CSV = os.path.join(BATCH_TASKS_DIR, "archive", "批量回测任务.archive.csv")
+BATCH_TASK_TEMPLATE_HEADERS = [
+    "任务ID", "批次号", "优先级", "是否启用", "股票代码", "策略ID", "开始日期", "结束日期",
+    "初始资金", "K线周期", "数据源", "场景标签", "成本档位", "滑点BP", "佣金费率", "印花税率",
+    "最小手数", "是否T1", "最大重试", "任务状态", "报告ID", "错误信息", "创建时间", "更新时间"
+]
+batch_run_lock = threading.Lock()
+batch_run_state: Dict[str, Any] = {
+    "proc": None,
+    "started_at": None,
+    "finished_at": None,
+    "returncode": None,
+    "cmd": [],
+    "cwd": PROJECT_ROOT,
+    "tasks_csv": DEFAULT_BATCH_TASKS_CSV,
+    "results_csv": "data/批量回测结果.csv",
+    "summary_csv": "data/策略汇总评分.csv",
+    "batch_no_filter": "",
+    "archive_completed": False,
+    "archive_tasks_csv": DEFAULT_BATCH_ARCHIVE_CSV,
+    "max_tasks": 0,
+    "parallel_workers": 1,
+    "logs": [],
+}
+
+def _project_rel_path(path: str) -> str:
+    try:
+        return os.path.relpath(os.path.abspath(path), PROJECT_ROOT).replace("\\", "/")
+    except Exception:
+        return str(path or "").replace("\\", "/")
+
+
+def _is_subpath(parent: str, child: str) -> bool:
+    try:
+        p = os.path.abspath(parent)
+        c = os.path.abspath(child)
+        return os.path.commonpath([p, c]) == p
+    except Exception:
+        return False
+
+
+def _resolve_batch_tasks_path(raw_path: Optional[str], default_path: str = DEFAULT_BATCH_TASKS_CSV, ensure_parent: bool = False) -> str:
+    raw = str(raw_path or "").strip().replace("\\", "/")
+    if not raw:
+        raw = str(default_path).replace("\\", "/")
+    abs_path = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(PROJECT_ROOT, raw))
+    if not str(abs_path).lower().endswith(".csv"):
+        raise ValueError("任务CSV必须是.csv文件")
+    tasks_root = os.path.abspath(os.path.join(PROJECT_ROOT, BATCH_TASKS_DIR))
+    if not _is_subpath(tasks_root, abs_path):
+        raise ValueError("任务CSV必须位于 data/batch_tasks 目录下")
+    if ensure_parent:
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    return abs_path
 
 def _system_mode(cfg=None):
     c = cfg if cfg is not None else ConfigLoader.reload()
@@ -865,12 +929,11 @@ def _save_split_config(incoming):
             if isinstance(cur_val, list):
                 _set_path_value(public_cfg, path, [])
 
-    cfg = ConfigLoader.reload()
-    cfg._config = public_cfg
-    cfg.save("config.json")
+    # Persist public config directly to avoid calling ConfigLoader.save(),
+    # which may rewrite private config paths during serialization.
+    _write_json_file(os.path.join(_project_root(), "config.json"), public_cfg)
 
     private_path = _private_config_path()
-    private_exists = os.path.exists(private_path)
     if secret_updates or private_only_updates:
         private_cfg = _load_json_with_comments(private_path, silent=True)
         if not isinstance(private_cfg, dict):
@@ -879,25 +942,18 @@ def _save_split_config(incoming):
         for path, val in secret_updates.items():
             text = str(val or "")
             old_val = _get_path_value(private_cfg, path, "")
+            # Incremental upsert only: empty value means "no change".
             if not text.strip():
-                if _path_exists(private_cfg, path):
-                    _delete_path_value(private_cfg, path)
-                    private_changed = True
                 continue
             if str(old_val) != text:
                 _set_path_value(private_cfg, path, text)
                 private_changed = True
         for path, val in private_only_updates.items():
             old_val = _get_path_value(private_cfg, path, None)
-            if isinstance(val, list) and not val:
-                if _path_exists(private_cfg, path):
-                    _delete_path_value(private_cfg, path)
-                    private_changed = True
-                continue
             if old_val != val:
                 _set_path_value(private_cfg, path, val)
                 private_changed = True
-        if private_changed or private_exists:
+        if private_changed:
             _write_json_file(private_path, private_cfg)
 
     return ConfigLoader.reload()
@@ -953,46 +1009,46 @@ def _check_provider_connectivity_for_code(provider, provider_source: str, stock_
     except Exception as e:
         return False, str(e)
 
-async def _emit_backtest_precheck_progress(progress: int, phase_label: str, period_text: str):
+async def _emit_backtest_precheck_progress(progress: int, phase_label: str, period_text: str, broadcast_ws: bool = True):
     await emit_event_to_ws("backtest_progress", {
         "progress": int(progress),
         "phase": "data_fetch",
         "phase_label": phase_label,
         "current_date": period_text
-    })
+    }, broadcast_ws=broadcast_ws)
 
-async def _run_backtest_provider_precheck(stock_code: str, start: Optional[str], end: Optional[str]):
+async def _run_backtest_provider_precheck(stock_code: str, start: Optional[str], end: Optional[str], broadcast_ws: bool = True):
     cfg = ConfigLoader.reload()
     provider_source = str(cfg.get("data_provider.source", "default") or "default").strip().lower()
     period_text = f"{start or '--'} ~ {end or '--'}"
-    await _emit_backtest_precheck_progress(1, "回测启动前检查", period_text)
+    await _emit_backtest_precheck_progress(1, "回测启动前检查", period_text, broadcast_ws=broadcast_ws)
     await emit_event_to_ws("backtest_flow", {
         "module": "工部",
         "level": "system",
         "msg": f"回测启动前数据源检测：source={provider_source} code={stock_code}"
-    })
+    }, broadcast_ws=broadcast_ws)
     provider = _build_provider_by_source(provider_source, cfg=cfg)
-    await _emit_backtest_precheck_progress(3, "检查数据源连通性", period_text)
+    await _emit_backtest_precheck_progress(3, "检查数据源连通性", period_text, broadcast_ws=broadcast_ws)
     ok, reason = await asyncio.to_thread(_check_provider_connectivity_for_code, provider, provider_source, stock_code)
     if ok:
         await emit_event_to_ws("backtest_flow", {
             "module": "工部",
             "level": "success",
             "msg": f"数据源连通性检测通过：source={provider_source}"
-        })
-        await _emit_backtest_precheck_progress(5, "连通性检测通过，准备启动回测", period_text)
+        }, broadcast_ws=broadcast_ws)
+        await _emit_backtest_precheck_progress(5, "连通性检测通过，准备启动回测", period_text, broadcast_ws=broadcast_ws)
         return True, provider_source, "ok"
     await emit_event_to_ws("backtest_flow", {
         "module": "工部",
         "level": "warning",
         "msg": f"数据源连通性检测失败：source={provider_source} reason={reason}"
-    })
+    }, broadcast_ws=broadcast_ws)
     await emit_event_to_ws("backtest_failed", {
         "msg": f"回测启动前连通性检测失败：source={provider_source} reason={reason}",
         "stock": stock_code,
         "provider_source": provider_source,
         "stage": "startup_precheck"
-    })
+    }, broadcast_ws=broadcast_ws)
     return False, provider_source, str(reason or "")
 
 def _iter_report_file_paths():
@@ -1292,6 +1348,38 @@ def cancel_current_backtest_report(msg="backtest cancelled"):
     current_backtest_report["finished_at"] = datetime.now().isoformat(timespec="seconds")
     finalize_current_backtest_report()
 
+def _current_backtest_report_id() -> str:
+    if not isinstance(current_backtest_report, dict):
+        return ""
+    return str(current_backtest_report.get("report_id", "") or "").strip()
+
+def _is_active_backtest_report(report_id: str) -> bool:
+    rid = str(report_id or "").strip()
+    if not rid:
+        return False
+    return _current_backtest_report_id() == rid
+
+def _on_backtest_task_done(task: asyncio.Task):
+    global cabinet_task
+    try:
+        if cabinet_task is task:
+            cabinet_task = None
+    except Exception:
+        pass
+    try:
+        task.exception()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+
+def _spawn_backtest_task(*args, **kwargs) -> asyncio.Task:
+    global cabinet_task
+    task = asyncio.create_task(run_backtest_task(*args, **kwargs))
+    task.add_done_callback(_on_backtest_task_done)
+    cabinet_task = task
+    return task
+
 # --- WebSocket Manager ---
 async def connect(websocket: WebSocket):
     await websocket.accept()
@@ -1327,9 +1415,11 @@ class BacktestRequest(BaseModel):
     strategy_id: str = "all"
     strategy_ids: Optional[list[str]] = None
     strategy_mode: Optional[str] = None
+    combination_config: Optional[dict] = None
     start: Optional[str] = None
     end: Optional[str] = None
     capital: Optional[float] = None
+    realtime_push: Optional[bool] = True
 
 class LiveRequest(BaseModel):
     stock_code: Optional[str] = None
@@ -1460,6 +1550,90 @@ class FrontendAssetCacheRequest(BaseModel):
     remote_url: str
 
 
+class TdxCompileRequest(BaseModel):
+    formula_text: str
+    strategy_id: Optional[str] = None
+    strategy_name: Optional[str] = None
+    kline_type: Optional[str] = None
+
+
+class TdxImportRequest(BaseModel):
+    formula_text: str
+    strategy_id: Optional[str] = None
+    strategy_name: Optional[str] = None
+    kline_type: Optional[str] = None
+    analysis_text: Optional[str] = None
+    source: Optional[str] = None
+    protect_level: Optional[str] = None
+    immutable: Optional[bool] = None
+
+
+class TdxGenerateFormulaRequest(BaseModel):
+    prompt: str
+    kline_type: Optional[str] = None
+
+
+class BlkParseRequest(BaseModel):
+    file_path: Optional[str] = None
+    content: Optional[str] = None
+    encoding: Optional[str] = "auto"
+    normalize_symbol: bool = True
+
+
+class BlkImportStockPoolRequest(BaseModel):
+    file_path: Optional[str] = None
+    content: Optional[str] = None
+    encoding: Optional[str] = "auto"
+    normalize_symbol: bool = True
+    import_mode: Optional[str] = "append"  # append | replace
+    market_tag: Optional[str] = "主板"
+    industry_tag: Optional[str] = "BLK导入"
+    size_tag: Optional[str] = "未知"
+    enabled: Optional[bool] = True
+    stock_pool_csv: Optional[str] = "data/任务生成_标的池.csv"
+
+
+class BatchGenerateTasksRequest(BaseModel):
+    generate_mode: Optional[str] = "append"  # append | replace
+    generate_max_tasks: Optional[int] = 0
+    tasks_csv: Optional[str] = DEFAULT_BATCH_TASKS_CSV
+    generator_strategies_csv: Optional[str] = "data/任务生成_策略池.csv"
+    generator_stocks_csv: Optional[str] = "data/任务生成_标的池.csv"
+    generator_windows_csv: Optional[str] = "data/任务生成_区间池.csv"
+    generator_scenarios_csv: Optional[str] = "data/任务生成_场景池.csv"
+
+
+class BatchRunControlRequest(BaseModel):
+    tasks_csv: Optional[str] = DEFAULT_BATCH_TASKS_CSV
+    results_csv: Optional[str] = "data/批量回测结果.csv"
+    summary_csv: Optional[str] = "data/策略汇总评分.csv"
+    batch_no_filter: Optional[str] = ""
+    archive_completed: Optional[bool] = False
+    archive_tasks_csv: Optional[str] = DEFAULT_BATCH_ARCHIVE_CSV
+    max_tasks: Optional[int] = 0
+    parallel_workers: Optional[int] = 1
+    base_url: Optional[str] = "http://127.0.0.1:8000"
+    base_urls: Optional[str] = ""
+    rate_limit_interval_seconds: Optional[float] = 0.0
+    poll_seconds: Optional[int] = 3
+    status_log_seconds: Optional[int] = 90
+    max_wait_seconds: Optional[int] = 7200
+    retry_sleep_seconds: Optional[int] = 3
+
+
+class BatchStrategyPoolSyncRequest(BaseModel):
+    strategy_pool_csv: Optional[str] = "data/任务生成_策略池.csv"
+    strategy_ids: Optional[List[str]] = None
+    use_all_enabled: Optional[bool] = False
+    mode: Optional[str] = "replace"  # replace | append
+
+
+class BatchTaskCsvCreateRequest(BaseModel):
+    prefix: Optional[str] = ""
+    file_name: Optional[str] = ""
+    overwrite: Optional[bool] = False
+
+
 def _extract_code_block(text):
     m = re.search(r"```python\s*([\s\S]*?)```", str(text or ""), re.IGNORECASE)
     if m:
@@ -1478,6 +1652,136 @@ def _normalize_kline_type(value):
     if not v:
         return "1min"
     return v
+
+
+def _extract_tdx_formula_text(content):
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    patterns = [
+        r"```tdx\s*([\s\S]*?)```",
+        r"```txt\s*([\s\S]*?)```",
+        r"```text\s*([\s\S]*?)```",
+        r"```\s*([\s\S]*?)```",
+    ]
+    for p in patterns:
+        m = re.search(p, text, flags=re.IGNORECASE)
+        if m:
+            text = str(m.group(1) or "").strip()
+            break
+    lines = [str(x).strip() for x in text.replace("\r\n", "\n").split("\n")]
+    lines = [x for x in lines if x and not x.startswith("#")]
+    return "\n".join(lines).strip()
+
+
+def _build_tdx_formula_by_llm(prompt_text, kline_type):
+    requirement = str(prompt_text or "").strip()
+    tf = _normalize_kline_type(kline_type)
+    fallback_formula = "MA5:=MA(C,5);\nMA10:=MA(C,10);\nCROSS(MA5,MA10)"
+    cfg = ConfigLoader.reload()
+    api_key = str(
+        cfg.get("data_provider.strategy_llm_api_key", "")
+        or cfg.get("data_provider.llm_api_key", "")
+        or cfg.get("data_provider.api_key", "")
+        or cfg.get("data_provider.default_api_key", "")
+        or ""
+    ).strip()
+    base_url = str(
+        cfg.get("data_provider.strategy_llm_api_url", "")
+        or cfg.get("data_provider.llm_api_url", "")
+        or cfg.get("data_provider.default_api_url", "")
+        or ""
+    ).strip()
+    model_name = str(
+        cfg.get("data_provider.strategy_llm_model", "")
+        or cfg.get("data_provider.llm_model", "")
+        or ""
+    ).strip() or "gpt-4o-mini"
+    timeout_sec = int(
+        cfg.get("data_provider.strategy_llm_timeout_sec", 0)
+        or cfg.get("data_provider.llm_timeout_sec", 0)
+        or 120
+    )
+    timeout_sec = max(30, min(timeout_sec, 300))
+    if not api_key or not base_url:
+        return {
+            "formula_text": fallback_formula,
+            "kline_type": tf,
+            "model": "",
+            "msg": "未检测到可用大模型配置，已回退示例公式。"
+        }
+    url = base_url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        if url.endswith("/v1"):
+            url = f"{url}/chat/completions"
+        else:
+            url = f"{url}/v1/chat/completions"
+    system_prompt = (
+        "你是通达信公式专家。只输出通达信条件选股/交易公式，不要输出Python代码。"
+        "允许使用变量赋值与最终布尔表达式，输出必须可被编译器解析。"
+        "输出时不得包含解释、标题、序号。"
+    )
+    user_prompt = (
+        f"目标K线周期: {tf}\n"
+        f"需求描述: {requirement}\n\n"
+        "请输出通达信公式正文。"
+        "可使用函数: MA, EMA, HHV, LLV, REF, COUNT, IF, CROSS, ABS, MAX, MIN, STD。"
+        "最后一行必须是布尔信号表达式。"
+    )
+    payload = {
+        "model": model_name,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+    try:
+        req = urllib.request.Request(
+            url=url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            raw = resp.read().decode("utf-8")
+        result = json.loads(raw)
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        formula_text = _extract_tdx_formula_text(content)
+        if not formula_text:
+            formula_text = fallback_formula
+        return {
+            "formula_text": formula_text,
+            "kline_type": tf,
+            "model": model_name,
+            "msg": "已生成公式。"
+        }
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="ignore")[:240]
+        except Exception:
+            detail = ""
+        msg = f"大模型生成失败（HTTP {int(e.code)}）"
+        if detail:
+            msg = f"{msg}：{detail}"
+        return {
+            "formula_text": fallback_formula,
+            "kline_type": tf,
+            "model": model_name,
+            "msg": f"{msg}，已回退示例公式。"
+        }
+    except Exception as e:
+        err = str(e).strip()
+        msg = f"大模型生成失败（{type(e).__name__}）"
+        if err:
+            msg = f"{msg}：{err[:200]}"
+        return {
+            "formula_text": fallback_formula,
+            "kline_type": tf,
+            "model": model_name,
+            "msg": f"{msg}，已回退示例公式。"
+        }
 
 
 def _apply_kline_type_to_code(code_text, kline_type):
@@ -2046,6 +2350,919 @@ async def api_strategy_manager_next_id():
     except Exception as e:
         logger.error(f"/api/strategy_manager/next_id failed: {e}", exc_info=True)
         return {"status": "error", "msg": str(e), "strategy_id": ""}
+
+
+@app.post("/api/tdx/generate_formula")
+async def api_tdx_generate_formula(req: TdxGenerateFormulaRequest):
+    try:
+        prompt_text = str(req.prompt or "").strip()
+        if not prompt_text:
+            return {"status": "error", "msg": "prompt is required"}
+        tf = _normalize_kline_type(req.kline_type)
+        payload = _build_tdx_formula_by_llm(prompt_text, tf)
+        return {
+            "status": "success",
+            "formula_text": str(payload.get("formula_text", "")).strip(),
+            "kline_type": tf,
+            "model": payload.get("model", ""),
+            "msg": payload.get("msg", "已生成公式。")
+        }
+    except Exception as e:
+        logger.error(f"/api/tdx/generate_formula failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/tdx/compile")
+async def api_tdx_compile(req: TdxCompileRequest):
+    try:
+        formula_text = str(req.formula_text or "").strip()
+        if not formula_text:
+            return {"status": "error", "msg": "formula_text is required"}
+        sid = str(req.strategy_id or "").strip() or next_custom_strategy_id()
+        name = str(req.strategy_name or "").strip() or f"通达信策略{sid}"
+        tf = _normalize_kline_type(req.kline_type)
+        payload = compile_tdx_formula(
+            formula_text=formula_text,
+            strategy_id=sid,
+            strategy_name=name,
+            kline_type=tf,
+        )
+        return {
+            "status": "success",
+            "strategy_id": payload.get("strategy_id"),
+            "strategy_name": payload.get("strategy_name"),
+            "class_name": payload.get("class_name"),
+            "kline_type": tf,
+            "warmup_bars": payload.get("warmup_bars"),
+            "used_functions": payload.get("used_functions", []),
+            "code": payload.get("code", ""),
+        }
+    except Exception as e:
+        logger.error(f"/api/tdx/compile failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/tdx/import_strategy")
+async def api_tdx_import_strategy(req: TdxImportRequest):
+    try:
+        formula_text = str(req.formula_text or "").strip()
+        if not formula_text:
+            return {"status": "error", "msg": "formula_text is required"}
+        sid = str(req.strategy_id or "").strip() or next_custom_strategy_id()
+        if _find_strategy_meta(sid) is not None:
+            return {"status": "error", "msg": f"strategy id already exists: {sid}"}
+        sname = str(req.strategy_name or "").strip() or f"通达信策略{sid}"
+        tf = _normalize_kline_type(req.kline_type)
+        payload = compile_tdx_formula(
+            formula_text=formula_text,
+            strategy_id=sid,
+            strategy_name=sname,
+            kline_type=tf,
+        )
+        code_text = _apply_kline_type_to_code(str(payload.get("code", "")), tf)
+        class_name = _extract_first_class_name(code_text) or str(payload.get("class_name", "")).strip()
+        analysis_text = str(req.analysis_text or "").strip() or "由通达信公式自动转换并导入。"
+        add_custom_strategy({
+            "id": sid,
+            "name": sname,
+            "class_name": class_name,
+            "code": code_text,
+            "template_text": formula_text,
+            "analysis_text": analysis_text,
+            "strategy_intent": intent_engine.from_human_input(f"通达信公式转换策略: {sname}").to_dict(),
+            "source": str(req.source or "human").strip() or "human",
+            "kline_type": tf,
+            "depends_on": [],
+            "protect_level": str(req.protect_level or "custom").strip() or "custom",
+            "immutable": bool(req.immutable) if req.immutable is not None else False,
+            "raw_requirement_title": "通达信公式",
+            "raw_requirement": formula_text
+        })
+        return {
+            "status": "success",
+            "strategy_id": sid,
+            "strategy_name": sname,
+            "class_name": class_name,
+            "kline_type": tf,
+            "warmup_bars": payload.get("warmup_bars"),
+            "used_functions": payload.get("used_functions", []),
+        }
+    except Exception as e:
+        logger.error(f"/api/tdx/import_strategy failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/blk/parse")
+async def api_blk_parse(req: BlkParseRequest):
+    try:
+        file_path = str(req.file_path or "").strip()
+        content = str(req.content or "")
+        if not file_path and not content.strip():
+            return {"status": "error", "msg": "file_path or content is required"}
+        encoding = str(req.encoding or "auto").strip() or "auto"
+        if file_path:
+            payload = parse_blk_file(file_path=file_path, encoding=encoding)
+        else:
+            payload = parse_blk_text(content)
+            payload["path"] = ""
+        raw_codes = [str(x or "").strip() for x in payload.get("codes", []) if str(x or "").strip()]
+        if bool(req.normalize_symbol):
+            codes = [_normalize_symbol(x) for x in raw_codes]
+        else:
+            codes = raw_codes
+        unique_codes = []
+        seen = set()
+        for code in codes:
+            if code and code not in seen:
+                seen.add(code)
+                unique_codes.append(code)
+        return {
+            "status": "success",
+            "path": payload.get("path", ""),
+            "count": len(unique_codes),
+            "codes": unique_codes,
+            "invalid_lines": payload.get("invalid_lines", []),
+        }
+    except Exception as e:
+        logger.error(f"/api/blk/parse failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/blk/import_stock_pool")
+async def api_blk_import_stock_pool(req: BlkImportStockPoolRequest):
+    try:
+        file_path = str(req.file_path or "").strip()
+        content = str(req.content or "")
+        if not file_path and not content.strip():
+            return {"status": "error", "msg": "file_path or content is required"}
+        encoding = str(req.encoding or "auto").strip() or "auto"
+        if file_path:
+            payload = parse_blk_file(file_path=file_path, encoding=encoding)
+        else:
+            payload = parse_blk_text(content)
+            payload["path"] = ""
+        raw_codes = [str(x or "").strip() for x in payload.get("codes", []) if str(x or "").strip()]
+        if bool(req.normalize_symbol):
+            codes = [_normalize_symbol(x) for x in raw_codes]
+        else:
+            codes = raw_codes
+        uniq_codes = []
+        seen_codes = set()
+        for code in codes:
+            c = str(code or "").strip().upper()
+            if not c or c in seen_codes:
+                continue
+            seen_codes.add(c)
+            uniq_codes.append(c)
+        pool_path = str(req.stock_pool_csv or "data/任务生成_标的池.csv").strip() or "data/任务生成_标的池.csv"
+        abs_path = os.path.abspath(pool_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        field_names = ["股票代码", "市场标签", "行业标签", "市值标签", "是否启用"]
+        rows = []
+        if os.path.exists(abs_path):
+            with open(abs_path, "r", encoding="utf-8-sig", newline="") as f:
+                rows = list(csv.DictReader(f))
+        mode = str(req.import_mode or "append").strip().lower()
+        if mode not in {"append", "replace"}:
+            mode = "append"
+        base_rows = []
+        if mode == "append":
+            for r in rows:
+                code = _normalize_symbol(str(r.get("股票代码", "")).strip())
+                if not code:
+                    continue
+                base_rows.append(
+                    {
+                        "股票代码": code,
+                        "市场标签": str(r.get("市场标签", "")).strip(),
+                        "行业标签": str(r.get("行业标签", "")).strip(),
+                        "市值标签": str(r.get("市值标签", "")).strip(),
+                        "是否启用": str(r.get("是否启用", "1")).strip() or "1",
+                    }
+                )
+        enabled_text = "1" if bool(req.enabled) else "0"
+        new_count = 0
+        updated_count = 0
+        if mode == "replace":
+            base_rows = []
+        row_map = {str(x.get("股票代码", "")).strip(): x for x in base_rows if str(x.get("股票代码", "")).strip()}
+        for code in uniq_codes:
+            existing = row_map.get(code)
+            if existing:
+                existing["市场标签"] = str(req.market_tag or existing.get("市场标签", "")).strip()
+                existing["行业标签"] = str(req.industry_tag or existing.get("行业标签", "")).strip()
+                existing["市值标签"] = str(req.size_tag or existing.get("市值标签", "")).strip()
+                existing["是否启用"] = enabled_text
+                updated_count += 1
+                continue
+            base_rows.append(
+                {
+                    "股票代码": code,
+                    "市场标签": str(req.market_tag or "").strip(),
+                    "行业标签": str(req.industry_tag or "").strip(),
+                    "市值标签": str(req.size_tag or "").strip(),
+                    "是否启用": enabled_text,
+                }
+            )
+            new_count += 1
+        with open(abs_path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=field_names, extrasaction="ignore")
+            w.writeheader()
+            for row in base_rows:
+                w.writerow({k: row.get(k, "") for k in field_names})
+        return {
+            "status": "success",
+            "path": abs_path,
+            "mode": mode,
+            "input_count": len(uniq_codes),
+            "added_count": new_count,
+            "updated_count": updated_count,
+            "total_count": len(base_rows),
+            "invalid_lines": payload.get("invalid_lines", []),
+        }
+    except Exception as e:
+        logger.error(f"/api/blk/import_stock_pool failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/batch/generate_tasks")
+async def api_batch_generate_tasks(req: BatchGenerateTasksRequest):
+    try:
+        mode = str(req.generate_mode or "append").strip().lower()
+        if mode not in {"append", "replace"}:
+            mode = "append"
+        max_tasks = int(req.generate_max_tasks or 0)
+        if max_tasks < 0:
+            max_tasks = 0
+        tasks_csv_abs = _resolve_batch_tasks_path(req.tasks_csv, DEFAULT_BATCH_TASKS_CSV, ensure_parent=True)
+        tasks_csv_rel = _project_rel_path(tasks_csv_abs)
+        cmd = [
+            sys.executable,
+            "scripts/batch_backtest_runner.py",
+            "--generate-tasks",
+            "--generate-mode",
+            mode,
+            "--generate-max-tasks",
+            str(max_tasks),
+            "--tasks-csv",
+            tasks_csv_rel,
+            "--generator-strategies-csv",
+            str(req.generator_strategies_csv or "data/任务生成_策略池.csv"),
+            "--generator-stocks-csv",
+            str(req.generator_stocks_csv or "data/任务生成_标的池.csv"),
+            "--generator-windows-csv",
+            str(req.generator_windows_csv or "data/任务生成_区间池.csv"),
+            "--generator-scenarios-csv",
+            str(req.generator_scenarios_csv or "data/任务生成_场景池.csv"),
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=os.path.abspath("."),
+            capture_output=True,
+            text=True,
+            timeout=180
+        )
+        output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        lines = [x for x in str(output).splitlines() if str(x).strip()]
+        tail = lines[-20:] if len(lines) > 20 else lines
+        if proc.returncode != 0:
+            return {
+                "status": "error",
+                "msg": "generate_tasks failed",
+                "returncode": int(proc.returncode),
+                "output_tail": tail,
+            }
+        return {
+            "status": "success",
+            "msg": "generate_tasks done",
+            "returncode": int(proc.returncode),
+            "output_tail": tail,
+            "tasks_csv": tasks_csv_rel,
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/generate_tasks failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/batch/strategy_pool/sync")
+async def api_batch_strategy_pool_sync(req: BatchStrategyPoolSyncRequest):
+    try:
+        path = os.path.abspath(str(req.strategy_pool_csv or "data/任务生成_策略池.csv"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        mode = str(req.mode or "replace").strip().lower()
+        if mode not in {"replace", "append"}:
+            mode = "replace"
+        ids: List[str] = []
+        if bool(req.use_all_enabled):
+            meta_rows = list_all_strategy_meta()
+            for m in meta_rows:
+                if not isinstance(m, dict):
+                    continue
+                if not bool(m.get("enabled", True)):
+                    continue
+                sid = str(m.get("id", "")).strip()
+                if sid:
+                    ids.append(sid)
+        else:
+            for raw in (req.strategy_ids or []):
+                sid = str(raw or "").strip()
+                if sid:
+                    ids.append(sid)
+        uniq_ids = []
+        seen = set()
+        for sid in ids:
+            if sid in seen:
+                continue
+            seen.add(sid)
+            uniq_ids.append(sid)
+        if not uniq_ids:
+            return {"status": "error", "msg": "no strategy ids resolved"}
+        rows = []
+        if mode == "append" and os.path.exists(path):
+            with open(path, "r", encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    sid = str(r.get("策略ID", r.get("strategy_id", ""))).strip()
+                    if sid:
+                        rows.append({"策略ID": sid, "是否启用": str(r.get("是否启用", r.get("enabled", "1")) or "1")})
+        row_map = {str(x.get("策略ID", "")).strip(): x for x in rows if str(x.get("策略ID", "")).strip()}
+        for sid in uniq_ids:
+            row_map[sid] = {"策略ID": sid, "是否启用": "1"}
+        merged_rows = sorted(list(row_map.values()), key=lambda x: str(x.get("策略ID", "")))
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=["策略ID", "是否启用"], extrasaction="ignore")
+            w.writeheader()
+            for r in merged_rows:
+                w.writerow({"策略ID": r.get("策略ID", ""), "是否启用": r.get("是否启用", "1")})
+        return {
+            "status": "success",
+            "path": path,
+            "mode": mode,
+            "input_count": len(uniq_ids),
+            "total_count": len(merged_rows),
+            "strategy_ids": uniq_ids[:200],
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/strategy_pool/sync failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+def _append_batch_run_log(line: str) -> None:
+    with batch_run_lock:
+        logs = batch_run_state.setdefault("logs", [])
+        logs.append(str(line or "").rstrip("\n"))
+        if len(logs) > 800:
+            batch_run_state["logs"] = logs[-800:]
+
+
+def _normalize_batch_filter_list(text: str) -> List[str]:
+    parts = [x.strip() for x in str(text or "").replace("，", ",").split(",") if x.strip()]
+    uniq = []
+    seen = set()
+    for p in parts:
+        u = p.upper()
+        if u in seen:
+            continue
+        seen.add(u)
+        uniq.append(u)
+    return uniq
+
+
+def _is_batch_running() -> bool:
+    proc = batch_run_state.get("proc")
+    if proc is None:
+        return False
+    try:
+        return proc.poll() is None
+    except Exception:
+        return False
+
+
+def _batch_stream_reader(proc: subprocess.Popen) -> None:
+    try:
+        if proc.stdout is None:
+            return
+        for line in proc.stdout:
+            if line is None:
+                continue
+            _append_batch_run_log(str(line))
+    except Exception as e:
+        _append_batch_run_log(f"[reader_error] {e}")
+
+
+def _batch_waiter(proc: subprocess.Popen) -> None:
+    try:
+        rc = proc.wait()
+    except Exception:
+        rc = -1
+    with batch_run_lock:
+        if batch_run_state.get("proc") is proc:
+            batch_run_state["returncode"] = int(rc)
+            batch_run_state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            batch_run_state["proc"] = None
+
+
+def _batch_progress_snapshot(tasks_path: str, batch_no_filter: str) -> Dict[str, Any]:
+    if not os.path.exists(tasks_path):
+        return {"total": 0, "pending": 0, "retry": 0, "running": 0, "success": 0, "failed": 0, "progress": 0.0}
+    with open(tasks_path, "r", encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    batch_filters = set(_normalize_batch_filter_list(batch_no_filter))
+    use_filter = len(batch_filters) > 0
+    out = {"total": 0, "pending": 0, "retry": 0, "running": 0, "success": 0, "failed": 0}
+    status_alias = {
+        "ok": "success",
+        "done": "success",
+        "completed": "success",
+        "error": "failed",
+        "待执行": "pending",
+        "待处理": "pending",
+        "重试": "retry",
+        "运行中": "running",
+        "成功": "success",
+        "失败": "failed",
+    }
+    for r in rows:
+        bn = str(r.get("批次号", r.get("batch_no", "")) or "").strip().upper()
+        if use_filter and bn not in batch_filters:
+            continue
+        st_raw = str(r.get("任务状态", r.get("status", "")) or "").strip()
+        st = status_alias.get(st_raw, status_alias.get(st_raw.lower(), st_raw.lower() if st_raw else "pending"))
+        if st not in out:
+            st = "pending"
+        out["total"] += 1
+        out[st] += 1
+    total = max(0, int(out["total"]))
+    done = int(out["success"]) + int(out["failed"])
+    progress = float(done / total) if total > 0 else 0.0
+    out["progress"] = progress
+    return out
+
+
+@app.post("/api/batch/run/start")
+async def api_batch_run_start(req: BatchRunControlRequest):
+    try:
+        with batch_run_lock:
+            if _is_batch_running():
+                return {"status": "error", "msg": "batch run already running"}
+        tasks_csv_abs = _resolve_batch_tasks_path(req.tasks_csv, DEFAULT_BATCH_TASKS_CSV, ensure_parent=True)
+        tasks_csv_rel = _project_rel_path(tasks_csv_abs)
+        archive_csv_abs = _resolve_batch_tasks_path(req.archive_tasks_csv, DEFAULT_BATCH_ARCHIVE_CSV, ensure_parent=True)
+        archive_csv_rel = _project_rel_path(archive_csv_abs)
+        cmd = [
+            sys.executable,
+            "scripts/batch_backtest_runner.py",
+            "--tasks-csv", tasks_csv_rel,
+            "--results-csv", str(req.results_csv or "data/批量回测结果.csv"),
+            "--summary-csv", str(req.summary_csv or "data/策略汇总评分.csv"),
+            "--max-tasks", str(max(0, int(req.max_tasks or 0))),
+            "--parallel-workers", str(max(1, int(req.parallel_workers or 1))),
+            "--base-url", str(req.base_url or "http://127.0.0.1:8000"),
+            "--poll-seconds", str(max(1, int(req.poll_seconds or 3))),
+            "--status-log-seconds", str(max(1, int(req.status_log_seconds or 90))),
+            "--max-wait-seconds", str(max(60, int(req.max_wait_seconds or 7200))),
+            "--retry-sleep-seconds", str(max(1, int(req.retry_sleep_seconds or 3))),
+            "--rate-limit-interval-seconds", str(max(0.0, float(req.rate_limit_interval_seconds or 0.0))),
+        ]
+        base_urls = str(req.base_urls or "").strip()
+        if base_urls:
+            cmd.extend(["--base-urls", base_urls])
+        batch_no_filter = str(req.batch_no_filter or "").strip()
+        if batch_no_filter:
+            cmd.extend(["--batch-no-filter", batch_no_filter])
+        if bool(req.archive_completed):
+            cmd.append("--archive-completed")
+            cmd.extend(["--archive-tasks-csv", archive_csv_rel])
+        cwd = os.path.abspath(".")
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        with batch_run_lock:
+            batch_run_state["proc"] = proc
+            batch_run_state["started_at"] = datetime.now().isoformat(timespec="seconds")
+            batch_run_state["finished_at"] = None
+            batch_run_state["returncode"] = None
+            batch_run_state["cmd"] = cmd
+            batch_run_state["cwd"] = cwd
+            batch_run_state["tasks_csv"] = tasks_csv_rel
+            batch_run_state["results_csv"] = str(req.results_csv or "data/批量回测结果.csv")
+            batch_run_state["summary_csv"] = str(req.summary_csv or "data/策略汇总评分.csv")
+            batch_run_state["batch_no_filter"] = batch_no_filter
+            batch_run_state["archive_completed"] = bool(req.archive_completed)
+            batch_run_state["archive_tasks_csv"] = archive_csv_rel
+            batch_run_state["max_tasks"] = max(0, int(req.max_tasks or 0))
+            batch_run_state["parallel_workers"] = max(1, int(req.parallel_workers or 1))
+            batch_run_state["logs"] = [f"[start] {' '.join(cmd)}"]
+        t1 = threading.Thread(target=_batch_stream_reader, args=(proc,), daemon=True)
+        t2 = threading.Thread(target=_batch_waiter, args=(proc,), daemon=True)
+        t1.start()
+        t2.start()
+        return {
+            "status": "success",
+            "msg": "batch run started",
+            "pid": proc.pid,
+            "started_at": batch_run_state.get("started_at"),
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/run/start failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.get("/api/batch/run/status")
+async def api_batch_run_status(tasks_csv: Optional[str] = None, batch_no_filter: Optional[str] = None, log_limit: int = 120):
+    try:
+        tasks_csv_abs = _resolve_batch_tasks_path(tasks_csv, str(batch_run_state.get("tasks_csv") or DEFAULT_BATCH_TASKS_CSV), ensure_parent=False)
+        tasks_csv_rel = _project_rel_path(tasks_csv_abs)
+        with batch_run_lock:
+            running = _is_batch_running()
+            proc = batch_run_state.get("proc")
+            state_copy = {
+                "started_at": batch_run_state.get("started_at"),
+                "finished_at": batch_run_state.get("finished_at"),
+                "returncode": batch_run_state.get("returncode"),
+                "cmd": list(batch_run_state.get("cmd") or []),
+                "cwd": batch_run_state.get("cwd"),
+                "tasks_csv": tasks_csv_rel,
+                "results_csv": batch_run_state.get("results_csv"),
+                "summary_csv": batch_run_state.get("summary_csv"),
+                "batch_no_filter": str(batch_no_filter if batch_no_filter is not None else batch_run_state.get("batch_no_filter") or ""),
+                "archive_completed": bool(batch_run_state.get("archive_completed", False)),
+                "archive_tasks_csv": batch_run_state.get("archive_tasks_csv"),
+                "max_tasks": int(batch_run_state.get("max_tasks", 0) or 0),
+                "parallel_workers": int(batch_run_state.get("parallel_workers", 1) or 1),
+                "pid": int(proc.pid) if proc is not None else None,
+                "logs": list(batch_run_state.get("logs") or []),
+            }
+        snap = _batch_progress_snapshot(
+            tasks_path=tasks_csv_abs,
+            batch_no_filter=state_copy["batch_no_filter"],
+        )
+        limit = max(20, min(500, int(log_limit or 120)))
+        logs = state_copy["logs"][-limit:] if state_copy["logs"] else []
+        return {
+            "status": "success",
+            "running": running,
+            "pid": state_copy["pid"],
+            "started_at": state_copy["started_at"],
+            "finished_at": state_copy["finished_at"],
+            "returncode": state_copy["returncode"],
+            "config": {
+                "tasks_csv": state_copy["tasks_csv"],
+                "results_csv": state_copy["results_csv"],
+                "summary_csv": state_copy["summary_csv"],
+                "batch_no_filter": state_copy["batch_no_filter"],
+                "archive_completed": state_copy["archive_completed"],
+                "archive_tasks_csv": state_copy["archive_tasks_csv"],
+                "max_tasks": state_copy["max_tasks"],
+                "parallel_workers": state_copy["parallel_workers"],
+            },
+            "progress": snap,
+            "log_tail": logs,
+            "last_log": logs[-1] if logs else "",
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/run/status failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/batch/run/stop")
+async def api_batch_run_stop():
+    try:
+        with batch_run_lock:
+            proc = batch_run_state.get("proc")
+            if proc is None or proc.poll() is not None:
+                return {"status": "success", "msg": "no running batch process"}
+            pid = proc.pid
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
+        finally:
+            with batch_run_lock:
+                if batch_run_state.get("proc") is proc:
+                    batch_run_state["proc"] = None
+                    batch_run_state["returncode"] = int(proc.returncode) if proc.returncode is not None else -1
+                    batch_run_state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+                    logs = batch_run_state.setdefault("logs", [])
+                    logs.append(f"[stop] pid={pid}")
+                    if len(logs) > 800:
+                        batch_run_state["logs"] = logs[-800:]
+        return {"status": "success", "msg": f"batch process stopped pid={pid}"}
+    except Exception as e:
+        logger.error(f"/api/batch/run/stop failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.get("/api/batch/overview")
+async def api_batch_overview(
+    tasks_csv: str = DEFAULT_BATCH_TASKS_CSV,
+    results_csv: str = "data/批量回测结果.csv",
+    summary_csv: str = "data/策略汇总评分.csv",
+    limit: int = 300
+):
+    try:
+        lim = max(10, min(2000, int(limit or 300)))
+        tasks_path = _resolve_batch_tasks_path(tasks_csv, DEFAULT_BATCH_TASKS_CSV, ensure_parent=False)
+        results_path = os.path.abspath(str(results_csv or "data/批量回测结果.csv"))
+        summary_path = os.path.abspath(str(summary_csv or "data/策略汇总评分.csv"))
+
+        def _read_csv(path: str) -> List[Dict[str, Any]]:
+            if not os.path.exists(path):
+                return []
+            with open(path, "r", encoding="utf-8-sig", newline="") as f:
+                return list(csv.DictReader(f))
+
+        def _to_float(v: Any, default: float = 0.0) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return default
+
+        def _to_int(v: Any, default: int = 0) -> int:
+            try:
+                return int(float(v))
+            except Exception:
+                return default
+
+        def _norm_status(v: Any) -> str:
+            t = str(v or "").strip().lower()
+            alias = {
+                "ok": "success",
+                "done": "success",
+                "completed": "success",
+                "error": "failed",
+            }
+            return alias.get(t, t if t else "pending")
+
+        tasks_rows = _read_csv(tasks_path)
+        results_rows = _read_csv(results_path)
+        summary_rows = _read_csv(summary_path)
+
+        batch_stats: Dict[str, Dict[str, Any]] = {}
+        status_counter: Dict[str, int] = {}
+        for row in tasks_rows:
+            st = _norm_status(row.get("任务状态", row.get("status", "")))
+            status_counter[st] = int(status_counter.get(st, 0)) + 1
+            bn = str(row.get("批次号", row.get("batch_no", "")) or "GEN").strip() or "GEN"
+            item = batch_stats.setdefault(bn, {"batch_no": bn, "total": 0, "pending": 0, "running": 0, "retry": 0, "success": 0, "failed": 0})
+            item["total"] += 1
+            if st in item:
+                item[st] += 1
+
+        sorted_results = sorted(
+            [x for x in results_rows if isinstance(x, dict)],
+            key=lambda x: str(x.get("任务ID", x.get("task_id", ""))),
+            reverse=True,
+        )
+        recent_rows = []
+        for r in sorted_results[:lim]:
+            sid = str(r.get("策略ID", r.get("strategy_id", ""))).strip()
+            total_return = _to_float(r.get("总收益", r.get("total_return", 0.0)), 0.0)
+            annualized = _to_float(r.get("年化收益", r.get("annualized_return", 0.0)), 0.0)
+            max_dd = _to_float(r.get("最大回撤", r.get("max_drawdown", 0.0)), 0.0)
+            score = _to_float(r.get("综合评分", r.get("score_final", 0.0)), 0.0)
+            recent_rows.append({
+                "task_id": str(r.get("任务ID", r.get("task_id", ""))),
+                "batch_no": str(r.get("批次号", r.get("batch_no", ""))),
+                "stock_code": str(r.get("股票代码", r.get("stock_code", ""))),
+                "strategy_id": sid,
+                "scenario_tag": str(r.get("场景标签", r.get("scenario_tag", ""))),
+                "report_id": str(r.get("报告ID", r.get("report_id", ""))),
+                "grade": str(r.get("评级", r.get("grade", ""))),
+                "score_final": score,
+                "total_return": total_return,
+                "annualized_return": annualized,
+                "max_drawdown": max_dd,
+                "win_rate": _to_float(r.get("胜率", r.get("win_rate", 0.0)), 0.0),
+                "trade_count": _to_int(r.get("总交易数", r.get("total_trades", 0)), 0),
+            })
+
+        strategy_board = []
+        if summary_rows:
+            for s in summary_rows[:lim]:
+                strategy_board.append({
+                    "strategy_id": str(s.get("策略ID", s.get("strategy_id", ""))),
+                    "task_count": _to_int(s.get("任务数", s.get("task_count", 0)), 0),
+                    "success_count": _to_int(s.get("成功数", s.get("success_count", 0)), 0),
+                    "median_score_final": _to_float(s.get("综合评分中位数", s.get("median_score_final", 0.0)), 0.0),
+                    "median_annualized_return": _to_float(s.get("年化收益中位数", s.get("median_annualized_return", 0.0)), 0.0),
+                    "median_max_drawdown": _to_float(s.get("最大回撤中位数", s.get("median_max_drawdown", 0.0)), 0.0),
+                    "median_win_rate": _to_float(s.get("胜率中位数", s.get("median_win_rate", 0.0)), 0.0),
+                    "grade": str(s.get("评级", s.get("grade", ""))),
+                    "decision": str(s.get("建议动作", s.get("decision", ""))),
+                })
+        else:
+            agg: Dict[str, Dict[str, Any]] = {}
+            for r in recent_rows:
+                sid = str(r.get("strategy_id", "")).strip() or "UNKNOWN"
+                stat = agg.setdefault(sid, {"strategy_id": sid, "task_count": 0, "success_count": 0, "sum_score": 0.0, "sum_annual": 0.0, "sum_dd": 0.0, "sum_wr": 0.0})
+                stat["task_count"] += 1
+                stat["success_count"] += 1
+                stat["sum_score"] += _to_float(r.get("score_final", 0.0), 0.0)
+                stat["sum_annual"] += _to_float(r.get("annualized_return", 0.0), 0.0)
+                stat["sum_dd"] += _to_float(r.get("max_drawdown", 0.0), 0.0)
+                stat["sum_wr"] += _to_float(r.get("win_rate", 0.0), 0.0)
+            for sid, stat in agg.items():
+                n = max(1, int(stat["task_count"]))
+                strategy_board.append({
+                    "strategy_id": sid,
+                    "task_count": int(stat["task_count"]),
+                    "success_count": int(stat["success_count"]),
+                    "median_score_final": float(stat["sum_score"] / n),
+                    "median_annualized_return": float(stat["sum_annual"] / n),
+                    "median_max_drawdown": float(stat["sum_dd"] / n),
+                    "median_win_rate": float(stat["sum_wr"] / n),
+                    "grade": "",
+                    "decision": "",
+                })
+            strategy_board = sorted(strategy_board, key=lambda x: float(x.get("median_score_final", 0.0)), reverse=True)
+
+        payload = {
+            "status": "success",
+            "meta": {
+                "tasks_csv": tasks_path,
+                "results_csv": results_path,
+                "summary_csv": summary_path,
+                "task_count": len(tasks_rows),
+                "result_count": len(results_rows),
+                "summary_count": len(summary_rows),
+            },
+            "task_status": status_counter,
+            "batch_stats": sorted(list(batch_stats.values()), key=lambda x: str(x.get("batch_no", ""))),
+            "strategy_board": strategy_board[:100],
+            "recent_results": recent_rows,
+        }
+        payload = _sanitize_non_finite(payload)
+        safe_payload = _safe_json_obj(payload)
+        if isinstance(safe_payload, dict):
+            return safe_payload
+        return {"status": "error", "msg": "invalid payload"}
+    except Exception as e:
+        logger.error(f"/api/batch/overview failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.get("/api/batch/tasks_csv/list")
+async def api_batch_tasks_csv_list(limit: int = 300, include_archive: bool = True):
+    try:
+        root_abs = os.path.abspath(os.path.join(PROJECT_ROOT, BATCH_TASKS_DIR))
+        os.makedirs(root_abs, exist_ok=True)
+        lim = max(20, min(3000, int(limit or 300)))
+        files = []
+        for dirpath, _, filenames in os.walk(root_abs):
+            for name in filenames:
+                if not str(name).lower().endswith(".csv"):
+                    continue
+                abs_path = os.path.join(dirpath, name)
+                rel_project = _project_rel_path(abs_path)
+                rel_in_root = os.path.relpath(abs_path, root_abs).replace("\\", "/")
+                is_archive = rel_in_root.lower().startswith("archive/")
+                if not include_archive and is_archive:
+                    continue
+                try:
+                    st = os.stat(abs_path)
+                    mtime = datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
+                    size = int(st.st_size)
+                except Exception:
+                    mtime = ""
+                    size = 0
+                files.append({
+                    "path": rel_project,
+                    "name": name,
+                    "mtime": mtime,
+                    "size": size,
+                    "is_archive": is_archive,
+                })
+        files.sort(key=lambda x: str(x.get("mtime", "")), reverse=True)
+        return {
+            "status": "success",
+            "root_dir": _project_rel_path(root_abs),
+            "default_tasks_csv": _project_rel_path(os.path.join(PROJECT_ROOT, DEFAULT_BATCH_TASKS_CSV)),
+            "default_archive_csv": _project_rel_path(os.path.join(PROJECT_ROOT, DEFAULT_BATCH_ARCHIVE_CSV)),
+            "files": files[:lim],
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/tasks_csv/list failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.post("/api/batch/tasks_csv/create_template")
+async def api_batch_tasks_csv_create_template(req: BatchTaskCsvCreateRequest):
+    try:
+        raw_prefix = str(req.prefix or "").strip()
+        raw_name = str(req.file_name or "").strip()
+        clean_prefix = re.sub(r'[\\/:*?"<>|]+', "_", raw_prefix).replace(" ", "_")[:48]
+        clean_name = re.sub(r'[\\/:*?"<>|]+', "_", raw_name).strip()
+        if clean_name:
+            if not clean_name.lower().endswith(".csv"):
+                clean_name = f"{clean_name}.csv"
+            rel_path = os.path.join(BATCH_TASKS_DIR, clean_name).replace("\\", "/")
+        else:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            rel_path = os.path.join(BATCH_TASKS_DIR, f"{clean_prefix}批量回测任务_{stamp}.csv").replace("\\", "/")
+        abs_path = _resolve_batch_tasks_path(rel_path, DEFAULT_BATCH_TASKS_CSV, ensure_parent=True)
+        rel_project = _project_rel_path(abs_path)
+        if os.path.exists(abs_path) and not bool(req.overwrite):
+            return {"status": "error", "msg": f"file already exists: {rel_project}"}
+        with open(abs_path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=BATCH_TASK_TEMPLATE_HEADERS, extrasaction="ignore")
+            w.writeheader()
+        return {
+            "status": "success",
+            "path": rel_project,
+            "headers": list(BATCH_TASK_TEMPLATE_HEADERS),
+            "overwrite": bool(req.overwrite),
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/tasks_csv/create_template failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
+@app.get("/api/batch/tasks_preview")
+async def api_batch_tasks_preview(
+    tasks_csv: str = DEFAULT_BATCH_TASKS_CSV,
+    batch_no_filter: str = "",
+    status_filter: str = "",
+    limit: int = 500
+):
+    try:
+        path = _resolve_batch_tasks_path(tasks_csv, DEFAULT_BATCH_TASKS_CSV, ensure_parent=False)
+        if not os.path.exists(path):
+            return {"status": "success", "path": path, "total": 0, "rows": []}
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+        lim = max(20, min(3000, int(limit or 500)))
+        batch_filters = [x.strip().upper() for x in str(batch_no_filter or "").replace("，", ",").split(",") if x.strip()]
+        batch_set = set(batch_filters)
+        st_filter = str(status_filter or "").strip().lower()
+        status_alias = {
+            "ok": "success",
+            "done": "success",
+            "completed": "success",
+            "error": "failed",
+            "待执行": "pending",
+            "待处理": "pending",
+            "重试": "retry",
+            "运行中": "running",
+            "成功": "success",
+            "失败": "failed",
+        }
+        out = []
+        total = 0
+        for r in rows:
+            bn = str(r.get("批次号", r.get("batch_no", "")) or "").strip()
+            if batch_set and bn.upper() not in batch_set:
+                continue
+            st_raw = str(r.get("任务状态", r.get("status", "")) or "").strip()
+            st = status_alias.get(st_raw, status_alias.get(st_raw.lower(), st_raw.lower() if st_raw else "pending"))
+            if st_filter and st_filter not in {"all", "*"} and st != st_filter:
+                continue
+            total += 1
+            out.append({
+                "task_id": str(r.get("任务ID", r.get("task_id", ""))),
+                "batch_no": bn,
+                "priority": str(r.get("优先级", r.get("priority", ""))),
+                "enabled": str(r.get("是否启用", r.get("enabled", ""))),
+                "stock_code": str(r.get("股票代码", r.get("stock_code", ""))),
+                "strategy_id": str(r.get("策略ID", r.get("strategy_id", ""))),
+                "start_date": str(r.get("开始日期", r.get("start_date", ""))),
+                "end_date": str(r.get("结束日期", r.get("end_date", ""))),
+                "capital": str(r.get("初始资金", r.get("capital", ""))),
+                "kline_type": str(r.get("K线周期", r.get("kline_type", ""))),
+                "data_source": str(r.get("数据源", r.get("data_source", ""))),
+                "scenario_tag": str(r.get("场景标签", r.get("scenario_tag", ""))),
+                "cost_profile": str(r.get("成本档位", r.get("cost_profile", ""))),
+                "slippage_bp": str(r.get("滑点BP", r.get("slippage_bp", ""))),
+                "commission_rate": str(r.get("佣金费率", r.get("commission_rate", ""))),
+                "stamp_tax_rate": str(r.get("印花税率", r.get("stamp_tax_rate", ""))),
+                "min_lot": str(r.get("最小手数", r.get("min_lot", ""))),
+                "enforce_t1": str(r.get("是否T1", r.get("enforce_t1", ""))),
+                "max_retry": str(r.get("最大重试", r.get("max_retry", ""))),
+                "status": st,
+                "report_id": str(r.get("报告ID", r.get("report_id", ""))),
+                "error_msg": str(r.get("错误信息", r.get("error_msg", ""))),
+                "created_at": str(r.get("创建时间", r.get("created_at", ""))),
+                "updated_at": str(r.get("更新时间", r.get("updated_at", ""))),
+            })
+            if len(out) >= lim:
+                break
+        return {
+            "status": "success",
+            "path": path,
+            "total": int(total),
+            "rows": out,
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/tasks_preview failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
 
 
 @app.post("/api/strategy_manager/add")
@@ -2973,17 +4190,22 @@ async def api_start_backtest(req: BacktestRequest):
     if _system_mode(cfg) != "backtest":
         return {"status": "error", "msg": "当前运行模式非回测模式（system.mode=live），请先切换配置中心运行模式"}
     logger.info(
-        "start_backtest request params: stock_code=%s strategy_id=%s strategy_ids=%s strategy_mode=%s start=%s end=%s capital=%s",
+        "start_backtest request params: stock_code=%s strategy_id=%s strategy_ids=%s strategy_mode=%s combination=%s start=%s end=%s capital=%s realtime_push=%s",
         req.stock_code,
         req.strategy_id,
         req.strategy_ids,
         req.strategy_mode,
+        req.combination_config,
         req.start,
         req.end,
         req.capital,
+        req.realtime_push,
     )
     if cabinet_task and not cabinet_task.done():
+        if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
+            cancel_current_backtest_report("backtest replaced by new request")
         cabinet_task.cancel()
+        cabinet_task = None
     if _live_running_codes():
         await _stop_live_tasks(clear_profile=True)
     report_id = start_new_backtest_report(req.stock_code, req.strategy_id, {
@@ -2991,11 +4213,24 @@ async def api_start_backtest(req: BacktestRequest):
         "strategy_id": req.strategy_id,
         "strategy_ids": req.strategy_ids,
         "strategy_mode": req.strategy_mode,
+        "combination_config": req.combination_config,
         "start": req.start,
         "end": req.end,
-        "capital": req.capital
+        "capital": req.capital,
+        "realtime_push": req.realtime_push,
     })
-    cabinet_task = asyncio.create_task(run_backtest_task(req.stock_code, req.strategy_id, req.strategy_mode, req.start, req.end, req.capital, req.strategy_ids))
+    _spawn_backtest_task(
+        req.stock_code,
+        req.strategy_id,
+        req.strategy_mode,
+        req.start,
+        req.end,
+        req.capital,
+        req.strategy_ids,
+        req.combination_config,
+        report_id,
+        req.realtime_push,
+    )
     return {"status": "success", "msg": f"Backtest started for {req.stock_code}", "report_id": report_id}
 
 @app.post("/api/control/start_live")
@@ -3005,7 +4240,10 @@ async def api_start_live(req: LiveRequest):
         return {"status": "error", "msg": "Live功能已禁用（需 system.enable_live=true 且 system.mode=live）"}
     global cabinet_task
     if cabinet_task and not cabinet_task.done():
+        if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
+            cancel_current_backtest_report("backtest stopped by live start")
         cabinet_task.cancel()
+        cabinet_task = None
     _clear_live_last_error()
     codes = _normalize_live_codes(stock_code=req.stock_code, stock_codes=req.stock_codes)
     common_selection = _normalize_strategy_selection(strategy_id=req.strategy_id, strategy_ids=req.strategy_ids)
@@ -3056,23 +4294,81 @@ async def api_start_live(req: LiveRequest):
     }
 
 @app.post("/api/control/stop")
-async def api_stop_task():
+async def api_stop_task(request: Request):
     """Stop the current running task"""
     global cabinet_task
+    force_fast = False
+    released_task_ref = bool(cabinet_task is None or (cabinet_task is not None and cabinet_task.done()))
+    try:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            force_fast = bool(payload.get("force_fast") or payload.get("force"))
+    except Exception:
+        force_fast = False
     stopped_live = []
-    if _live_running_codes():
-        stopped_live = await _stop_live_tasks(clear_profile=True)
-        await manager.broadcast({"type": "system", "data": {"msg": "内阁监控已手动停止"}})
+    running_live_codes = _live_running_codes()
+    if running_live_codes:
+        if force_fast:
+            async def _stop_live_async():
+                stopped = await _stop_live_tasks(clear_profile=True)
+                if stopped:
+                    await manager.broadcast({"type": "system", "data": {"msg": "内阁监控已手动停止"}})
+            asyncio.create_task(_stop_live_async())
+            stopped_live = running_live_codes
+        else:
+            stopped_live = await _stop_live_tasks(clear_profile=True)
+            await manager.broadcast({"type": "system", "data": {"msg": "内阁监控已手动停止"}})
     if cabinet_task and not cabinet_task.done():
         cabinet_task.cancel()
         if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
-            cancel_current_backtest_report("backtest task cancelled by user")
-            await manager.broadcast({"type": "system", "data": {"msg": "回测已手动终止"}})
-            return {"status": "success", "msg": "Backtest stopped", "stopped_live_codes": stopped_live}
-        return {"status": "success", "msg": "Task stopped", "stopped_live_codes": stopped_live}
+            stop_reason = "backtest task force-stopped by user" if force_fast else "backtest task cancelled by user"
+            cancel_current_backtest_report(stop_reason)
+            if force_fast:
+                cabinet_task = None
+                released_task_ref = True
+            if force_fast:
+                asyncio.create_task(manager.broadcast({"type": "system", "data": {"msg": "回测已强制快速终止"}}))
+            else:
+                await manager.broadcast({"type": "system", "data": {"msg": "回测已手动终止"}})
+            return {
+                "status": "success",
+                "msg": "Backtest force-stopped" if force_fast else "Backtest stopped",
+                "stopped_live_codes": stopped_live,
+                "cleanup_state": {
+                    "released_task_ref": released_task_ref,
+                    "force_fast": force_fast
+                }
+            }
+        if force_fast:
+            cabinet_task = None
+            released_task_ref = True
+        return {
+            "status": "success",
+            "msg": "Task stopped",
+            "stopped_live_codes": stopped_live,
+            "cleanup_state": {
+                "released_task_ref": released_task_ref,
+                "force_fast": force_fast
+            }
+        }
     if stopped_live:
-        return {"status": "success", "msg": "Live stopped", "stopped_live_codes": stopped_live}
-    return {"status": "info", "msg": "No task is currently running"}
+        return {
+            "status": "success",
+            "msg": "Live stopped",
+            "stopped_live_codes": stopped_live,
+            "cleanup_state": {
+                "released_task_ref": released_task_ref,
+                "force_fast": force_fast
+            }
+        }
+    return {
+        "status": "info",
+        "msg": "No task is currently running",
+        "cleanup_state": {
+            "released_task_ref": released_task_ref,
+            "force_fast": force_fast
+        }
+    }
 
 @app.post("/api/control/switch_strategy")
 async def api_switch_strategy(req: StrategySwitchRequest):
@@ -3178,6 +4474,8 @@ def _build_status_payload(include_fund_pools: bool = True):
         "live_last_error": live_last_error,
         "provider_source": current_provider_source or config.get("data_provider.source", "default"),
         "live_enabled": is_live_enabled(),
+        "server_boot_id": SERVER_BOOT_ID,
+        "server_started_at": SERVER_STARTED_AT,
         "progress": current_backtest_progress,
         "current_report_id": current_backtest_report.get("report_id") if current_backtest_report else None,
         "current_report_status": current_backtest_report.get("status") if current_backtest_report else None,
@@ -3489,7 +4787,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         await manager.broadcast({"type": "system", "data": {"msg": "Live功能已禁用（需 system.enable_live=true 且 system.mode=live）"}})
                         continue
                     if cabinet_task and not cabinet_task.done():
+                        if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
+                            cancel_current_backtest_report("backtest stopped by live start")
                         cabinet_task.cancel()
+                        cabinet_task = None
                     _clear_live_last_error()
                     replace_existing = bool(cmd.get("replace_existing", True))
                     codes = _normalize_live_codes(
@@ -3543,25 +4844,40 @@ async def websocket_endpoint(websocket: WebSocket):
                     strategy_id = cmd.get("strategy", "all")
                     strategy_ids = cmd.get("strategy_ids")
                     strategy_mode = cmd.get("strategy_mode")  # e.g., 'top5'
+                    combination_config = cmd.get("combination_config")
                     start = cmd.get("start")  # 'YYYY-MM-DD'
                     end = cmd.get("end")      # 'YYYY-MM-DD'
                     capital = cmd.get("capital")  # numeric
                     
                     if cabinet_task and not cabinet_task.done():
+                        if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
+                            cancel_current_backtest_report("backtest replaced by new request")
                         cabinet_task.cancel()
+                        cabinet_task = None
                     if _live_running_codes():
                         await _stop_live_tasks()
-                    start_new_backtest_report(stock_code, strategy_id, {
+                    report_id = start_new_backtest_report(stock_code, strategy_id, {
                         "stock_code": stock_code,
                         "strategy_id": strategy_id,
                         "strategy_ids": strategy_ids,
                         "strategy_mode": strategy_mode,
+                        "combination_config": combination_config,
                         "start": start,
                         "end": end,
                         "capital": capital
                     })
-                        
-                    cabinet_task = asyncio.create_task(run_backtest_task(stock_code, strategy_id, strategy_mode, start, end, capital, strategy_ids))
+
+                    _spawn_backtest_task(
+                        stock_code,
+                        strategy_id,
+                        strategy_mode,
+                        start,
+                        end,
+                        capital,
+                        strategy_ids,
+                        combination_config,
+                        report_id,
+                    )
 
                 elif cmd.get("type") == "ping":
                     await websocket.send_json({
@@ -3609,6 +4925,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         cabinet_task.cancel()
                         if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
                             cancel_current_backtest_report("backtest task cancelled by user")
+                        cabinet_task = None
                         await manager.broadcast({"type": "system", "data": {"msg": "回测已手动终止"}})
                     
             except Exception as e:
@@ -3677,22 +4994,37 @@ async def run_cabinet_task(stock_code):
         if current_cabinet is cab:
             current_cabinet = next(iter(live_cabinets.values()), None)
 
-async def run_backtest_task(stock_code, strategy_id, strategy_mode=None, start=None, end=None, capital=None, strategy_ids=None):
+async def run_backtest_task(
+    stock_code,
+    strategy_id,
+    strategy_mode=None,
+    start=None,
+    end=None,
+    capital=None,
+    strategy_ids=None,
+    combination_config=None,
+    report_id=None,
+    realtime_push=True,
+):
     """Wrapper to run backtest"""
     logger.info(
-        "Starting Backtest params: stock_code=%s strategy_id=%s strategy_ids=%s strategy_mode=%s start=%s end=%s capital=%s",
+        "Starting Backtest params: stock_code=%s strategy_id=%s strategy_ids=%s strategy_mode=%s combination=%s start=%s end=%s capital=%s realtime_push=%s",
         stock_code,
         strategy_id,
         strategy_ids,
         strategy_mode,
+        combination_config,
         start,
         end,
         capital,
+        realtime_push,
     )
+    emit_to_frontend = bool(realtime_push)
     precheck_ok, precheck_source, precheck_reason = await _run_backtest_provider_precheck(
         stock_code=stock_code,
         start=start,
-        end=end
+        end=end,
+        broadcast_ws=emit_to_frontend,
     )
     if not precheck_ok:
         fail_current_backtest_report(f"backtest precheck failed source={precheck_source} reason={precheck_reason}")
@@ -3713,16 +5045,21 @@ async def run_backtest_task(stock_code, strategy_id, strategy_mode=None, start=N
             f"settlement={baseline_result.get('settlement_rule', '')} "
             f"source={baseline_result.get('data_source', '')}"
         )
-        await manager.broadcast({"type": "system", "data": {"msg": msg}})
+        if emit_to_frontend:
+            await manager.broadcast({"type": "system", "data": {"msg": msg}})
     initial_capital = float(capital) if capital is not None else float(cfg.get("system.initial_capital", 1000000.0) or 1000000.0)
     
+    task_report_id = str(report_id or "").strip()
+    async def _emit_event_scoped(event_type, data, stock_code=None):
+        await emit_event_to_ws(event_type, data, stock_code=stock_code, report_id=task_report_id, broadcast_ws=emit_to_frontend)
     cab = BacktestCabinet(
         stock_code=stock_code,
         strategy_id=strategy_id,
         initial_capital=initial_capital,
-        event_callback=emit_event_to_ws,
+        event_callback=_emit_event_scoped,
         strategy_mode=strategy_mode,
-        strategy_ids=strategy_ids
+        strategy_ids=strategy_ids,
+        combination_config=combination_config,
     )
     
     try:
@@ -3734,18 +5071,23 @@ async def run_backtest_task(stock_code, strategy_id, strategy_mode=None, start=N
         if end:
             end_dt = datetime.strptime(end, "%Y-%m-%d")
         await cab.run(start_date=start_dt, end_date=end_dt)
-        if current_backtest_report and current_backtest_report.get("status") == "running" and not current_backtest_report.get("summary"):
+        if _is_active_backtest_report(task_report_id) and current_backtest_report.get("status") == "running" and not current_backtest_report.get("summary"):
             fail_current_backtest_report("backtest finished without report summary")
     except asyncio.CancelledError:
         print("Backtest Task Cancelled")
-        if current_backtest_report and str(current_backtest_report.get("status", "")).lower() == "running":
+        if _is_active_backtest_report(task_report_id) and str(current_backtest_report.get("status", "")).lower() == "running":
             cancel_current_backtest_report("backtest task cancelled")
     except Exception as e:
         logger.error(f"run_backtest_task failed: {e}", exc_info=True)
-        fail_current_backtest_report(str(e))
+        if _is_active_backtest_report(task_report_id):
+            fail_current_backtest_report(str(e))
 
-async def emit_event_to_ws(event_type, data, stock_code=None):
+async def emit_event_to_ws(event_type, data, stock_code=None, report_id=None, broadcast_ws=True):
     global latest_backtest_result, latest_strategy_reports, current_backtest_report, current_backtest_progress, current_backtest_trades
+    scoped_report_id = str(report_id or "").strip()
+    if scoped_report_id and str(event_type or "").startswith("backtest_"):
+        if not _is_active_backtest_report(scoped_report_id):
+            return
     emit_data = data
     if stock_code:
         if isinstance(data, dict):
@@ -3816,7 +5158,8 @@ async def emit_event_to_ws(event_type, data, stock_code=None):
     }
     if stock_code:
         payload["stock_code"] = stock_code
-    await manager.broadcast(payload)
+    if broadcast_ws:
+        await manager.broadcast(payload)
     if stock_code and event_type != "system":
         if _should_notify_webhook_by_category(event_type=event_type, data=emit_data):
             await webhook_notifier.notify(event_type=event_type, data=emit_data, stock_code=stock_code)
