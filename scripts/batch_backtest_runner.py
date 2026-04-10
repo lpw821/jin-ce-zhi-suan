@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.blk_loader import parse_blk_file
+from src.utils.config_loader import ConfigLoader
 
 
 任务列定义 = [
@@ -49,6 +50,7 @@ from src.utils.blk_loader import parse_blk_file
 结果列定义 = [
     ("任务ID", "task_id"),
     ("批次号", "batch_no"),
+    ("任务目录", "task_artifacts_dir"),
     ("股票代码", "stock_code"),
     ("策略ID", "strategy_id"),
     ("场景标签", "scenario_tag"),
@@ -114,6 +116,7 @@ from src.utils.blk_loader import parse_blk_file
 结果英文别名 = [
     "task_id",
     "batch_no",
+    "task_artifacts_dir",
     "stock_code",
     "strategy_id",
     "scenario_tag",
@@ -219,6 +222,23 @@ from src.utils.blk_loader import parse_blk_file
     "成功": "success",
     "失败": "failed",
 }
+
+BATCH_AI_SYSTEM_PROMPT_DEFAULT = "你是A股量化研究复盘专家，擅长从批量回测结果中提炼可执行的参数优化建议。"
+BATCH_AI_USER_PROMPT_DEFAULT = (
+    "请基于给定的批量回测统计数据输出一份结构化Markdown报告，必须包含以下部分：\n"
+    "1) 总览结论（3-5条）\n"
+    "2) 策略分层建议（A/B/C/D分别如何处理）\n"
+    "3) 风险暴露与异常点（结合回撤、胜率、交易回合数）\n"
+    "4) 参数优化建议（必须给出明确参数值）\n"
+    "5) 下一轮批量实验矩阵（至少6组，给出分组名称+关键参数）\n"
+    "6) 可执行清单（按优先级列出）\n\n"
+    "输出要求：\n"
+    "- 只输出Markdown正文，不要输出JSON。\n"
+    "- 有明确数值时必须引用具体数值。\n"
+    "- 如果某项数据不足，明确写“数据不足”。\n\n"
+    "批量数据JSON如下：\n"
+    "{analysis_payload_json}"
+)
 
 
 def 当前时间() -> str:
@@ -327,12 +347,60 @@ def 追加CSV(path: Path, 列定义: List[Tuple[str, str]], row: Dict[str, Any])
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.exists()
     header_cn = [x[0] for x in 列定义]
+    if exists:
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            old_header = next(csv.reader(f), [])
+        if [str(x).strip() for x in old_header] != header_cn:
+            with path.open("r", encoding="utf-8-sig", newline="") as f:
+                old_rows = [标准化行(x, 列定义, []) for x in csv.DictReader(f)]
+            写入CSV(path, 列定义, old_rows)
+            exists = True
     with path.open("a", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=header_cn, extrasaction="ignore")
         if not exists:
             w.writeheader()
         payload = {中文: row.get(内部, "") for 中文, 内部 in 列定义}
         w.writerow(payload)
+
+
+def 写入JSON(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def 规范文件名片段(text: str, fallback: str = "UNKNOWN") -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return fallback
+    out = "".join([c if c.isalnum() or c in {"-", "_"} else "_" for c in raw])
+    return out or fallback
+
+
+def 构建任务目录路径(明细根目录: Path, task_id: str) -> Path:
+    task_key = 规范文件名片段(task_id)
+    return 明细根目录 / task_key
+
+
+def 任务目录输出文本(path: Path) -> str:
+    try:
+        rel = path.resolve().relative_to(PROJECT_ROOT.resolve())
+        return rel.as_posix()
+    except Exception:
+        return path.resolve().as_posix()
+
+
+def 写入任务明细文件(明细根目录: Path, task: Dict[str, Any], result: Dict[str, Any], report: Dict[str, Any]) -> str:
+    task_id = str(result.get("task_id") or task.get("task_id") or "").strip()
+    task_dir = 构建任务目录路径(明细根目录, task_id)
+    task_key = task_dir.name
+    task_dir.mkdir(parents=True, exist_ok=True)
+    写入JSON(task_dir / f"{task_key}.task.json", task)
+    写入JSON(task_dir / f"{task_key}.result.json", result)
+    if report:
+        report_id = 规范文件名片段(str(result.get("report_id", "")).strip(), fallback="report")
+        写入JSON(task_dir / f"{task_key}.{report_id}.report.json", report)
+    return 任务目录输出文本(task_dir)
 
 
 def 读取BLK股票列表(path: Path, encoding: str) -> List[str]:
@@ -703,7 +771,168 @@ def 按策略汇总(results_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, status_log_seconds: int, max_wait_seconds: int, retry_sleep_seconds: int) -> Dict[str, Any]:
+def 生成批量分析载荷(results_rows: List[Dict[str, Any]], summary_rows: List[Dict[str, Any]], max_results: int, max_strategies: int) -> Dict[str, Any]:
+    rows = list(results_rows or [])
+    sum_rows = list(summary_rows or [])
+    success_rows = [x for x in rows if str(x.get("run_status", "")).lower() == "success"]
+    failed_rows = [x for x in rows if str(x.get("run_status", "")).lower() == "failed"]
+    grade_dist: Dict[str, int] = {}
+    batch_dist: Dict[str, int] = {}
+    for r in success_rows:
+        g = str(r.get("grade", "") or "NA").strip().upper()
+        grade_dist[g] = int(grade_dist.get(g, 0) or 0) + 1
+        b = str(r.get("batch_no", "") or "NA").strip()
+        batch_dist[b] = int(batch_dist.get(b, 0) or 0) + 1
+    annual_vals = [转浮点(x.get("annualized_return"), 0.0) for x in success_rows]
+    mdd_vals = [abs(转浮点(x.get("max_drawdown"), 0.0)) for x in success_rows]
+    wr_vals = [转浮点(x.get("win_rate"), 0.0) for x in success_rows]
+    score_vals = [转浮点(x.get("score_final"), 0.0) for x in success_rows]
+    top_strategies = sorted(
+        [x for x in sum_rows if isinstance(x, dict)],
+        key=lambda x: 转浮点(x.get("median_score_final"), 0.0),
+        reverse=True,
+    )[: max(1, int(max_strategies or 1))]
+    sample_results = sorted(
+        [x for x in success_rows if isinstance(x, dict)],
+        key=lambda x: 转浮点(x.get("score_final"), 0.0),
+        reverse=True,
+    )[: max(1, int(max_results or 1))]
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "task_total": len(rows),
+        "success_total": len(success_rows),
+        "failed_total": len(failed_rows),
+        "success_rate": round((len(success_rows) / len(rows)) if rows else 0.0, 6),
+        "strategy_total": len({str(x.get("strategy_id", "")) for x in rows if str(x.get("strategy_id", "")).strip()}),
+        "batch_total": len({str(x.get("batch_no", "")) for x in rows if str(x.get("batch_no", "")).strip()}),
+        "grade_distribution": grade_dist,
+        "batch_distribution": batch_dist,
+        "median_annualized_return": round(中位数(annual_vals), 6),
+        "median_max_drawdown": round(中位数(mdd_vals), 6),
+        "median_win_rate": round(中位数(wr_vals), 6),
+        "median_score_final": round(中位数(score_vals), 6),
+        "summary_top_strategies": top_strategies,
+        "sample_results_top": sample_results,
+    }
+
+
+def 渲染提示词模板(template_text: str, context: Dict[str, Any]) -> str:
+    tpl = str(template_text or "").strip()
+    if not tpl:
+        return ""
+    try:
+        return tpl.format(**context)
+    except Exception:
+        return tpl
+
+
+def 调用LLM生成批量分析(
+    results_rows: List[Dict[str, Any]],
+    summary_rows: List[Dict[str, Any]],
+    args: argparse.Namespace,
+) -> Tuple[bool, str, str]:
+    cfg = ConfigLoader.reload()
+    api_key = str(cfg.get("data_provider.llm_api_key", "") or "").strip()
+    base_url = str(cfg.get("data_provider.llm_api_url", "") or "").strip()
+    model_name = str(cfg.get("data_provider.llm_model", "") or "gpt-4o-mini").strip()
+    if not api_key or not base_url:
+        return False, "", "未配置 data_provider.llm_api_key 或 data_provider.llm_api_url"
+    analysis_payload = 生成批量分析载荷(
+        results_rows=results_rows,
+        summary_rows=summary_rows,
+        max_results=max(1, int(args.ai_analysis_max_results or 1)),
+        max_strategies=max(1, int(args.ai_analysis_max_strategies or 1)),
+    )
+    payload_json_text = json.dumps(analysis_payload, ensure_ascii=False)
+    prompt_context = dict(analysis_payload)
+    prompt_context["analysis_payload_json"] = payload_json_text
+    system_prompt = str(args.ai_analysis_system_prompt or "").strip()
+    if not system_prompt:
+        system_prompt = str(cfg.get("batch_backtest.ai_analysis_system_prompt", "") or "").strip()
+    if not system_prompt:
+        system_prompt = BATCH_AI_SYSTEM_PROMPT_DEFAULT
+    user_prompt = str(args.ai_analysis_prompt or "").strip()
+    if not user_prompt:
+        user_prompt = str(cfg.get("batch_backtest.ai_analysis_prompt", "") or "").strip()
+    if not user_prompt:
+        user_prompt = BATCH_AI_USER_PROMPT_DEFAULT
+    user_prompt = 渲染提示词模板(user_prompt, prompt_context)
+    temperature = float(args.ai_analysis_temperature) if float(args.ai_analysis_temperature) >= 0 else 转浮点(cfg.get("batch_backtest.ai_analysis_temperature", 0.2), 0.2)
+    max_tokens = max(256, int(args.ai_analysis_max_tokens or 1200))
+    timeout_sec = max(10, int(args.ai_analysis_timeout_sec or 60))
+    url = base_url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        if url.endswith("/v1"):
+            url = f"{url}/chat/completions"
+        else:
+            url = f"{url}/v1/chat/completions"
+    req_payload = {
+        "model": model_name,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    try:
+        req = Request(
+            url=url,
+            data=json.dumps(req_payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=timeout_sec) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        obj = json.loads(raw)
+        content = str(obj.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+        if not content:
+            return False, "", "模型返回内容为空"
+        return True, content, ""
+    except HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="ignore")[:300]
+        except Exception:
+            body = ""
+        return False, "", f"HTTPError {e.code}: {body or str(e)}"
+    except URLError as e:
+        return False, "", f"URLError: {e}"
+    except Exception as e:
+        return False, "", str(e)
+
+
+def 生成并写入AI分析报告(
+    results_rows: List[Dict[str, Any]],
+    summary_rows: List[Dict[str, Any]],
+    args: argparse.Namespace,
+) -> Tuple[bool, str]:
+    if not results_rows:
+        return False, "结果集为空，无法生成AI分析"
+    ok, analysis, err = 调用LLM生成批量分析(results_rows, summary_rows, args)
+    if not ok:
+        return False, err
+    out_path = Path(str(args.ai_analysis_output_md or "data/批量回测AI分析.md")).resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    head = (
+        f"# 批量回测AI分析报告\n\n"
+        f"- 生成时间：{datetime.now().isoformat(timespec='seconds')}\n"
+        f"- 结果样本数：{len(results_rows)}\n"
+        f"- 策略汇总数：{len(summary_rows)}\n\n"
+    )
+    out_path.write_text(head + analysis.strip() + "\n", encoding="utf-8")
+    return True, str(out_path)
+
+
+def 单任务执行(
+    task: Dict[str, Any],
+    base_url: str,
+    poll_seconds: int,
+    status_log_seconds: int,
+    max_wait_seconds: int,
+    retry_sleep_seconds: int,
+    任务明细根目录: Path = None,
+) -> Dict[str, Any]:
     task_id = str(task.get("task_id", ""))
     stock_code = str(task.get("stock_code", "")).strip()
     strategy_id = str(task.get("strategy_id", "all")).strip() or "all"
@@ -715,15 +944,22 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
     data_source = str(task.get("data_source", "")).strip().lower()
     ok_start, start_date_norm = 规范日期(start_date)
     ok_end, end_date_norm = 规范日期(end_date)
-    if not ok_start or not ok_end:
-        return {
+
+    def 返回结果(ok: bool, status: str, report_id: str, error_msg: str, result_row: Dict[str, Any] = None, report_payload: Dict[str, Any] = None) -> Dict[str, Any]:
+        out = {
             "task_id": task_id,
-            "ok": False,
-            "status": "failed",
-            "report_id": "",
-            "error_msg": f"日期格式不合法，要求YYYY-MM-DD，当前 start={start_date} end={end_date}",
-            "result_row": None,
+            "ok": ok,
+            "status": status,
+            "report_id": report_id,
+            "error_msg": error_msg,
+            "result_row": result_row,
         }
+        if 任务明细根目录 is not None:
+            写入任务明细文件(任务明细根目录, task, out, report_payload or {})
+        return out
+
+    if not ok_start or not ok_end:
+        return 返回结果(False, "failed", "", f"日期格式不合法，要求YYYY-MM-DD，当前 start={start_date} end={end_date}")
     start_date = start_date_norm
     end_date = end_date_norm
     attempts = 0
@@ -736,14 +972,7 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
                     print(f"[RETRY] task={task_id} 切换数据源失败，准备重试")
                     time.sleep(retry_sleep_seconds)
                     continue
-                return {
-                    "task_id": task_id,
-                    "ok": False,
-                    "status": "failed",
-                    "report_id": "",
-                    "error_msg": switch_err or str(switch_resp.get("msg", "set_source失败")),
-                    "result_row": None,
-                }
+                return 返回结果(False, "failed", "", switch_err or str(switch_resp.get("msg", "set_source失败")))
         payload = {
             "stock_code": stock_code,
             "strategy_id": strategy_id,
@@ -760,14 +989,7 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
                 print(f"[RETRY] task={task_id} 启动失败，准备重试")
                 time.sleep(retry_sleep_seconds)
                 continue
-            return {
-                "task_id": task_id,
-                "ok": False,
-                "status": "failed",
-                "report_id": "",
-                "error_msg": start_err or str(start_resp.get("msg", "start_backtest失败")),
-                "result_row": None,
-            }
+            return 返回结果(False, "failed", "", start_err or str(start_resp.get("msg", "start_backtest失败")))
         report_id = str(start_resp.get("report_id", ""))
         ok_wait, _, wait_err = 等待完成(base_url, report_id, poll_seconds, status_log_seconds, max_wait_seconds)
         if not ok_wait:
@@ -776,33 +998,23 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
                 print(f"[RETRY] task={task_id} 等待失败，准备重试")
                 time.sleep(retry_sleep_seconds)
                 continue
-            return {
-                "task_id": task_id,
-                "ok": False,
-                "status": "failed",
-                "report_id": report_id,
-                "error_msg": wait_err,
-                "result_row": None,
-            }
+            return 返回结果(False, "failed", report_id, wait_err)
         ok_report, report, report_err = 拉取报告(base_url, report_id)
         if not ok_report:
             if attempts <= max_retry:
                 print(f"[RETRY] task={task_id} 拉取报告失败，准备重试")
                 time.sleep(retry_sleep_seconds)
                 continue
-            return {
-                "task_id": task_id,
-                "ok": False,
-                "status": "failed",
-                "report_id": report_id,
-                "error_msg": report_err,
-                "result_row": None,
-            }
+            return 返回结果(False, "failed", report_id, report_err)
         metric = 选取指标(report, strategy_id)
         score_raw, score_penalty, score_final, grade, decision = 自动评分(metric)
+        任务目录 = ""
+        if 任务明细根目录 is not None:
+            任务目录 = 任务目录输出文本(构建任务目录路径(任务明细根目录, task_id))
         result_row = {
             "task_id": task_id,
             "batch_no": task.get("batch_no", ""),
+            "task_artifacts_dir": 任务目录,
             "stock_code": stock_code,
             "strategy_id": strategy_id,
             "scenario_tag": scenario_tag,
@@ -825,25 +1037,22 @@ def 单任务执行(task: Dict[str, Any], base_url: str, poll_seconds: int, stat
             "grade": grade,
             "decision": decision,
         }
-        return {
-            "task_id": task_id,
-            "ok": True,
-            "status": "success",
-            "report_id": report_id,
-            "error_msg": "",
-            "result_row": result_row,
-        }
-    return {
-        "task_id": task_id,
-        "ok": False,
-        "status": "failed",
-        "report_id": "",
-        "error_msg": "未知错误",
-        "result_row": None,
-    }
+        return 返回结果(True, "success", report_id, "", result_row=result_row, report_payload=report)
+    return 返回结果(False, "failed", "", "未知错误")
 
 
-def worker_loop(worker_id: int, base_url: str, in_q: multiprocessing.Queue, out_q: multiprocessing.Queue, poll_seconds: int, status_log_seconds: int, max_wait_seconds: int, retry_sleep_seconds: int, 限流间隔秒: float) -> None:
+def worker_loop(
+    worker_id: int,
+    base_url: str,
+    in_q: multiprocessing.Queue,
+    out_q: multiprocessing.Queue,
+    poll_seconds: int,
+    status_log_seconds: int,
+    max_wait_seconds: int,
+    retry_sleep_seconds: int,
+    限流间隔秒: float,
+    任务明细根目录: str,
+) -> None:
     last_start = 0.0
     while True:
         try:
@@ -864,6 +1073,7 @@ def worker_loop(worker_id: int, base_url: str, in_q: multiprocessing.Queue, out_
             status_log_seconds=status_log_seconds,
             max_wait_seconds=max_wait_seconds,
             retry_sleep_seconds=retry_sleep_seconds,
+            任务明细根目录=Path(任务明细根目录).resolve() if str(任务明细根目录 or "").strip() else None,
         )
         result["worker_id"] = worker_id
         result["base_url"] = base_url
@@ -1303,6 +1513,7 @@ def 解析服务地址(args: argparse.Namespace) -> List[str]:
 
 def 执行串行(candidates: List[Dict[str, Any]], tasks_rows: List[Dict[str, Any]], tasks_map: Dict[str, Dict[str, Any]], results_cache: List[Dict[str, Any]], args: argparse.Namespace, tasks_path: Path, results_path: Path) -> None:
     base_url = str(args.base_url).strip()
+    任务明细根目录 = Path(str(args.task_artifacts_dir or "data/批量回测任务结果")).resolve()
     for task in candidates:
         tid = str(task.get("task_id", ""))
         row = tasks_map[tid]
@@ -1317,6 +1528,7 @@ def 执行串行(candidates: List[Dict[str, Any]], tasks_rows: List[Dict[str, An
             status_log_seconds=args.status_log_seconds,
             max_wait_seconds=args.max_wait_seconds,
             retry_sleep_seconds=args.retry_sleep_seconds,
+            任务明细根目录=任务明细根目录,
         )
         row["status"] = result.get("status", "failed")
         row["report_id"] = result.get("report_id", "")
@@ -1333,6 +1545,7 @@ def 执行串行(candidates: List[Dict[str, Any]], tasks_rows: List[Dict[str, An
 
 def 执行并发(candidates: List[Dict[str, Any]], tasks_rows: List[Dict[str, Any]], tasks_map: Dict[str, Dict[str, Any]], results_cache: List[Dict[str, Any]], args: argparse.Namespace, tasks_path: Path, results_path: Path) -> None:
     base_urls = 解析服务地址(args)
+    任务明细根目录 = Path(str(args.task_artifacts_dir or "data/批量回测任务结果")).resolve()
     workers = max(1, int(args.parallel_workers))
     if len(base_urls) == 1 and workers > 1:
         workers = 1
@@ -1354,6 +1567,7 @@ def 执行并发(candidates: List[Dict[str, Any]], tasks_rows: List[Dict[str, An
                 args.max_wait_seconds,
                 args.retry_sleep_seconds,
                 float(args.rate_limit_interval_seconds),
+                str(任务明细根目录),
             ),
         )
         p.start()
@@ -1400,6 +1614,8 @@ def run(args: argparse.Namespace) -> int:
     标的池路径 = Path(args.generator_stocks_csv).resolve()
     区间池路径 = Path(args.generator_windows_csv).resolve()
     场景池路径 = Path(args.generator_scenarios_csv).resolve()
+    任务明细根目录 = Path(str(args.task_artifacts_dir or "data/批量回测任务结果")).resolve()
+    任务明细根目录.mkdir(parents=True, exist_ok=True)
     has_import_ops = False
     if args.init_generator_templates:
         初始化任务生成模板(策略池路径, 标的池路径, 区间池路径, 场景池路径)
@@ -1441,6 +1657,18 @@ def run(args: argparse.Namespace) -> int:
     if args.init_template:
         初始化模板(tasks_path)
         print(f"模板已生成: {tasks_path}")
+        return 0
+    if bool(args.ai_analyze_only):
+        results_cache = 读取CSV(results_path, 结果列定义, 结果英文别名)
+        summary_rows = 读取CSV(summary_path, 汇总列定义, 汇总英文别名)
+        if not summary_rows:
+            summary_rows = 按策略汇总(results_cache)
+            写入CSV(summary_path, 汇总列定义, summary_rows)
+        ok_ai, ai_msg = 生成并写入AI分析报告(results_cache, summary_rows, args)
+        if not ok_ai:
+            print(f"AI分析失败: {ai_msg}")
+            return 1
+        print(f"AI分析文件: {ai_msg}")
         return 0
     if args.generate_tasks:
         现有任务 = 读取CSV(tasks_path, 任务列定义, 任务英文别名)
@@ -1498,13 +1726,23 @@ def run(args: argparse.Namespace) -> int:
     batch_filters = 解析批次过滤(args.batch_no_filter)
     if batch_filters:
         print(f"批次过滤: {','.join(batch_filters)}")
+    results_cache = 读取CSV(results_path, 结果列定义, 结果英文别名)
     candidates = 待执行任务(tasks_rows, batch_filters)
     if args.max_tasks > 0:
         candidates = candidates[: args.max_tasks]
     if not candidates:
         print("没有待执行任务")
+        if bool(args.ai_analyze):
+            summary_rows = 读取CSV(summary_path, 汇总列定义, 汇总英文别名)
+            if not summary_rows:
+                summary_rows = 按策略汇总(results_cache)
+                写入CSV(summary_path, 汇总列定义, summary_rows)
+            ok_ai, ai_msg = 生成并写入AI分析报告(results_cache, summary_rows, args)
+            if not ok_ai:
+                print(f"AI分析失败: {ai_msg}")
+                return 1
+            print(f"AI分析文件: {ai_msg}")
         return 0
-    results_cache = 读取CSV(results_path, 结果列定义, 结果英文别名)
     tasks_map = {str(x.get("task_id", "")): x for x in tasks_rows}
     if args.parallel_workers > 1:
         执行并发(candidates, tasks_rows, tasks_map, results_cache, args, tasks_path, results_path)
@@ -1514,6 +1752,12 @@ def run(args: argparse.Namespace) -> int:
     写入CSV(summary_path, 汇总列定义, summary_rows)
     print(f"结果文件: {results_path}")
     print(f"汇总文件: {summary_path}")
+    if bool(args.ai_analyze):
+        ok_ai, ai_msg = 生成并写入AI分析报告(results_cache, summary_rows, args)
+        if not ok_ai:
+            print(f"AI分析失败: {ai_msg}")
+            return 1
+        print(f"AI分析文件: {ai_msg}")
     return 0
 
 
@@ -1524,6 +1768,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tasks-csv", default="data/批量回测任务.csv", help="任务CSV路径")
     p.add_argument("--results-csv", default="data/批量回测结果.csv", help="结果CSV路径")
     p.add_argument("--summary-csv", default="data/策略汇总评分.csv", help="策略汇总CSV路径")
+    p.add_argument("--task-artifacts-dir", default="data/批量回测任务结果", help="按任务编号落盘的回测明细目录")
     p.add_argument("--init-template", action="store_true", help="生成任务模板CSV后退出")
     p.add_argument("--poll-seconds", type=int, default=3, help="状态轮询间隔秒")
     p.add_argument("--status-log-seconds", type=int, default=90, help="进度打印间隔秒")
@@ -1564,6 +1809,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--coverage-max-missing-industries", type=int, default=0, help="允许全局行业缺口数阈值")
     p.add_argument("--coverage-max-missing-sizes", type=int, default=0, help="允许全局市值缺口数阈值")
     p.add_argument("--coverage-fail-exit-code", type=int, default=2, help="硬门禁不通过时返回码")
+    p.add_argument("--ai-analyze", action="store_true", help="执行完成后基于批量结果生成AI分析报告")
+    p.add_argument("--ai-analyze-only", action="store_true", help="仅基于已有结果/汇总生成AI分析，不执行回测")
+    p.add_argument("--ai-analysis-output-md", default="data/批量回测AI分析.md", help="AI分析报告Markdown输出路径")
+    p.add_argument("--ai-analysis-system-prompt", default="", help="AI分析system提示词，支持覆盖配置项")
+    p.add_argument("--ai-analysis-prompt", default="", help="AI分析user提示词模板，支持 {analysis_payload_json} 占位符")
+    p.add_argument("--ai-analysis-max-results", type=int, default=200, help="注入提示词的结果样本上限")
+    p.add_argument("--ai-analysis-max-strategies", type=int, default=80, help="注入提示词的策略汇总上限")
+    p.add_argument("--ai-analysis-temperature", type=float, default=-1.0, help="AI温度，<0时使用配置或默认值")
+    p.add_argument("--ai-analysis-max-tokens", type=int, default=1400, help="AI输出最大token")
+    p.add_argument("--ai-analysis-timeout-sec", type=int, default=60, help="AI调用超时秒数")
     return p
 
 

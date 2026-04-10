@@ -905,6 +905,12 @@ def _save_split_config(incoming):
     merged_cfg = _deep_merge_dict(current_cfg, incoming_dict)
     secret_paths = _secret_config_paths(merged_cfg)
     private_only_paths = set(PRIVATE_ONLY_CONFIG_PATHS)
+    public_path = os.path.join(_project_root(), "config.json")
+    existing_public_cfg = _load_json_with_comments(public_path, silent=True)
+    if not isinstance(existing_public_cfg, dict):
+        existing_public_cfg = {}
+    private_path = _private_config_path()
+    private_exists = os.path.exists(private_path)
 
     secret_updates = {}
     for path in secret_paths:
@@ -918,22 +924,23 @@ def _save_split_config(incoming):
     for path in private_only_paths:
         if not _path_exists(incoming_dict, path):
             continue
+        if not private_exists:
+            continue
         private_only_updates[path] = _get_path_value(incoming_dict, path, [])
 
     public_cfg = json.loads(json.dumps(merged_cfg, ensure_ascii=False))
     for path in secret_paths:
         _set_path_value(public_cfg, path, "")
     for path in private_only_paths:
-        if _path_exists(public_cfg, path):
-            cur_val = _get_path_value(public_cfg, path, None)
-            if isinstance(cur_val, list):
-                _set_path_value(public_cfg, path, [])
+        if private_exists:
+            if _path_exists(existing_public_cfg, path):
+                _set_path_value(public_cfg, path, _get_path_value(existing_public_cfg, path, None))
+            else:
+                _delete_path_value(public_cfg, path)
+            continue
 
-    # Persist public config directly to avoid calling ConfigLoader.save(),
-    # which may rewrite private config paths during serialization.
-    _write_json_file(os.path.join(_project_root(), "config.json"), public_cfg)
+    _write_json_file(public_path, public_cfg)
 
-    private_path = _private_config_path()
     if secret_updates or private_only_updates:
         private_cfg = _load_json_with_comments(private_path, silent=True)
         if not isinstance(private_cfg, dict):
@@ -1619,6 +1626,16 @@ class BatchRunControlRequest(BaseModel):
     status_log_seconds: Optional[int] = 90
     max_wait_seconds: Optional[int] = 7200
     retry_sleep_seconds: Optional[int] = 3
+    ai_analyze: Optional[bool] = False
+    ai_analyze_only: Optional[bool] = False
+    ai_analysis_output_md: Optional[str] = "data/批量回测AI分析.md"
+    ai_analysis_system_prompt: Optional[str] = ""
+    ai_analysis_prompt: Optional[str] = ""
+    ai_analysis_max_results: Optional[int] = 200
+    ai_analysis_max_strategies: Optional[int] = 80
+    ai_analysis_temperature: Optional[float] = -1.0
+    ai_analysis_max_tokens: Optional[int] = 1400
+    ai_analysis_timeout_sec: Optional[int] = 60
 
 
 class BatchStrategyPoolSyncRequest(BaseModel):
@@ -1632,6 +1649,13 @@ class BatchTaskCsvCreateRequest(BaseModel):
     prefix: Optional[str] = ""
     file_name: Optional[str] = ""
     overwrite: Optional[bool] = False
+
+
+class BatchCombinationRecommendRequest(BaseModel):
+    strategy_ids: Optional[List[str]] = None
+    strategy_profiles: Optional[List[Dict[str, Any]]] = None
+    max_tokens: Optional[int] = 600
+    temperature: Optional[float] = 0.2
 
 
 def _extract_code_block(text):
@@ -2706,6 +2730,213 @@ async def api_batch_strategy_pool_sync(req: BatchStrategyPoolSyncRequest):
         return {"status": "error", "msg": str(e)}
 
 
+def _build_default_batch_combination(strategy_ids: List[str]) -> Dict[str, Any]:
+    ids = [str(x or "").strip() for x in (strategy_ids or []) if str(x or "").strip()]
+    n = len(ids)
+    use_vote = n >= 2
+    mode = "vote" if use_vote else "or"
+    min_agree = max(1, int(math.ceil(n * 0.6))) if use_vote else 1
+    weights = {sid: 1 for sid in ids}
+    return {
+        "enabled": True,
+        "mode": mode,
+        "min_agree_count": min_agree,
+        "tie_policy": "skip",
+        "weights": weights,
+    }
+
+
+def _extract_json_block(text: str) -> Dict[str, Any]:
+    raw = str(text or "").strip()
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        return {}
+    try:
+        obj = json.loads(m.group(0))
+        if isinstance(obj, dict):
+            return obj
+        return {}
+    except Exception:
+        return {}
+
+
+def _recommend_batch_combination_by_llm(strategy_ids: List[str], strategy_profiles: List[Dict[str, Any]], max_tokens: int, temperature: float) -> Dict[str, Any]:
+    cfg = ConfigLoader.reload()
+    api_key = str(cfg.get("data_provider.llm_api_key", "") or "").strip()
+    base_url = str(cfg.get("data_provider.llm_api_url", "") or "").strip()
+    model_name = str(cfg.get("data_provider.llm_model", "") or "gpt-4o-mini").strip()
+    if not api_key or not base_url:
+        raise RuntimeError("未配置 llm_api_url 或 llm_api_key")
+    payload_data = {
+        "strategy_ids": strategy_ids,
+        "strategy_profiles": strategy_profiles,
+        "defaults": _build_default_batch_combination(strategy_ids),
+    }
+    system_prompt = "你是A股量化组合参数顾问，擅长在多策略信号融合时提供可执行参数。"
+    user_prompt = (
+        "请根据输入策略列表，给出批量回测组合参数建议。\n"
+        "必须只返回JSON对象，不要输出Markdown，不要解释文本。\n"
+        "JSON结构固定：\n"
+        "{\n"
+        "  \"recommendation\": {\n"
+        "    \"enabled\": true,\n"
+        "    \"mode\": \"or|and|vote\",\n"
+        "    \"min_agree_count\": 1,\n"
+        "    \"tie_policy\": \"skip|buy|sell\",\n"
+        "    \"weights\": {\"策略ID\": 数值}\n"
+        "  },\n"
+        "  \"analysis\": \"给前端展示的简洁说明，100字以内\"\n"
+        "}\n"
+        "约束：\n"
+        "- recommendation.mode 只能是 or/and/vote。\n"
+        "- min_agree_count 必须是正整数，且不超过策略数量。\n"
+        "- weights 必须覆盖全部策略ID，权重为正数。\n"
+        "- 策略数>=2时优先使用 vote。\n"
+        f"输入数据：{json.dumps(payload_data, ensure_ascii=False)}"
+    )
+    url = base_url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        if url.endswith("/v1"):
+            url = f"{url}/chat/completions"
+        else:
+            url = f"{url}/v1/chat/completions"
+    payload = {
+        "model": model_name,
+        "temperature": float(temperature),
+        "max_tokens": int(max_tokens),
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    req = urllib.request.Request(
+        url=url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=45) as resp:
+        raw = resp.read().decode("utf-8")
+    obj = json.loads(raw)
+    content = str(obj.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+    parsed = _extract_json_block(content)
+    if not isinstance(parsed, dict):
+        raise RuntimeError("模型返回无法解析")
+    return parsed
+
+
+def _sanitize_batch_combination_recommendation(raw: Dict[str, Any], strategy_ids: List[str]) -> Dict[str, Any]:
+    sid_list = [str(x or "").strip() for x in (strategy_ids or []) if str(x or "").strip()]
+    sid_set = set(sid_list)
+    base = _build_default_batch_combination(sid_list)
+    rec_raw = raw.get("recommendation") if isinstance(raw.get("recommendation"), dict) else raw
+    mode = str(rec_raw.get("mode", base["mode"])).strip().lower()
+    if mode not in {"or", "and", "vote"}:
+        mode = base["mode"]
+    tie_policy = str(rec_raw.get("tie_policy", base["tie_policy"])).strip().lower()
+    if tie_policy not in {"skip", "buy", "sell"}:
+        tie_policy = base["tie_policy"]
+    min_agree_raw = rec_raw.get("min_agree_count", base["min_agree_count"])
+    try:
+        min_agree = int(float(min_agree_raw))
+    except Exception:
+        min_agree = int(base["min_agree_count"])
+    min_agree = max(1, min(len(sid_list) if sid_list else 1, min_agree))
+    weights_raw = rec_raw.get("weights") if isinstance(rec_raw.get("weights"), dict) else {}
+    weights: Dict[str, float] = {}
+    for sid in sid_list:
+        w = weights_raw.get(sid, 1)
+        try:
+            wv = float(w)
+        except Exception:
+            wv = 1.0
+        if not math.isfinite(wv) or wv <= 0:
+            wv = 1.0
+        weights[sid] = wv
+    for k, v in weights_raw.items():
+        sid = str(k or "").strip()
+        if not sid or sid not in sid_set:
+            continue
+        try:
+            wv = float(v)
+        except Exception:
+            continue
+        if not math.isfinite(wv) or wv <= 0:
+            continue
+        weights[sid] = wv
+    return {
+        "enabled": True,
+        "mode": mode,
+        "min_agree_count": min_agree,
+        "tie_policy": tie_policy,
+        "weights": weights,
+    }
+
+
+@app.post("/api/batch/combination/recommend")
+async def api_batch_combination_recommend(req: BatchCombinationRecommendRequest):
+    try:
+        sid_list = []
+        seen = set()
+        for raw in (req.strategy_ids or []):
+            sid = str(raw or "").strip()
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            sid_list.append(sid)
+        if not sid_list:
+            return {"status": "error", "msg": "strategy_ids is required"}
+        profile_map: Dict[str, Dict[str, Any]] = {}
+        for p in (req.strategy_profiles or []):
+            if not isinstance(p, dict):
+                continue
+            sid = str(p.get("strategy_id", "")).strip()
+            if not sid:
+                continue
+            profile_map[sid] = {
+                "strategy_id": sid,
+                "strategy_name": str(p.get("strategy_name", "")).strip(),
+                "score_hint": p.get("score_hint"),
+            }
+        ordered_profiles = [profile_map.get(sid, {"strategy_id": sid, "strategy_name": "", "score_hint": None}) for sid in sid_list]
+        fallback = _build_default_batch_combination(sid_list)
+        source = "rule"
+        analysis = f"默认建议：{len(sid_list)}个策略，采用{fallback['mode'].upper()}，最小同向数={fallback['min_agree_count']}，平票={fallback['tie_policy']}。"
+        rec = fallback
+        try:
+            max_tokens = max(256, min(2000, int(req.max_tokens or 600)))
+            temp = float(req.temperature if req.temperature is not None else 0.2)
+            llm_raw = _recommend_batch_combination_by_llm(
+                strategy_ids=sid_list,
+                strategy_profiles=ordered_profiles,
+                max_tokens=max_tokens,
+                temperature=temp,
+            )
+            rec = _sanitize_batch_combination_recommendation(llm_raw, sid_list)
+            source = "llm"
+            analysis = str(llm_raw.get("analysis", "") or "").strip() or analysis
+        except Exception as e:
+            logger.warning("batch combination llm fallback, err=%s", e)
+        return {
+            "status": "success",
+            "source": source,
+            "strategy_ids": sid_list,
+            "recommendation": rec,
+            "analysis": analysis,
+        }
+    except Exception as e:
+        logger.error(f"/api/batch/combination/recommend failed: {e}", exc_info=True)
+        return {"status": "error", "msg": str(e)}
+
+
 def _append_batch_run_log(line: str) -> None:
     with batch_run_lock:
         logs = batch_run_state.setdefault("logs", [])
@@ -2749,16 +2980,55 @@ def _batch_stream_reader(proc: subprocess.Popen) -> None:
         _append_batch_run_log(f"[reader_error] {e}")
 
 
+def _notify_batch_run_finished(rc: int, state_snapshot: Dict[str, Any]) -> None:
+    try:
+        tasks_csv = str(state_snapshot.get("tasks_csv") or DEFAULT_BATCH_TASKS_CSV)
+        results_csv = str(state_snapshot.get("results_csv") or "data/批量回测结果.csv")
+        summary_csv = str(state_snapshot.get("summary_csv") or "data/策略汇总评分.csv")
+        ai_md = str(state_snapshot.get("ai_analysis_output_md") or "data/批量回测AI分析.md")
+        batch_filter = str(state_snapshot.get("batch_no_filter") or "")
+        msg = (
+            f"批量回测已完成，exit={int(rc)}"
+            f"，任务={tasks_csv}，结果={results_csv}，汇总={summary_csv}"
+        )
+        if bool(state_snapshot.get("ai_analyze", False)):
+            msg = f"{msg}，AI分析={ai_md}"
+        if batch_filter:
+            msg = f"{msg}，批次过滤={batch_filter}"
+        notify_data = {
+            "msg": msg,
+            "level": "ok" if int(rc) == 0 else "warn",
+            "module": "批量回测",
+            "stock_codes": [],
+        }
+        if not _should_notify_webhook_by_category(event_type="system", data=notify_data):
+            return
+        asyncio.run(webhook_notifier.notify(event_type="system", data=notify_data, stock_code="MULTI"))
+    except Exception as e:
+        logger.error("batch finished webhook notify failed: %s", e, exc_info=True)
+
+
 def _batch_waiter(proc: subprocess.Popen) -> None:
     try:
         rc = proc.wait()
     except Exception:
         rc = -1
+    snapshot: Dict[str, Any] = {}
     with batch_run_lock:
         if batch_run_state.get("proc") is proc:
+            snapshot = {
+                "tasks_csv": batch_run_state.get("tasks_csv"),
+                "results_csv": batch_run_state.get("results_csv"),
+                "summary_csv": batch_run_state.get("summary_csv"),
+                "batch_no_filter": batch_run_state.get("batch_no_filter"),
+                "ai_analyze": bool(batch_run_state.get("ai_analyze", False)),
+                "ai_analysis_output_md": batch_run_state.get("ai_analysis_output_md"),
+            }
             batch_run_state["returncode"] = int(rc)
             batch_run_state["finished_at"] = datetime.now().isoformat(timespec="seconds")
             batch_run_state["proc"] = None
+    if snapshot:
+        _notify_batch_run_finished(int(rc), snapshot)
 
 
 def _batch_progress_snapshot(tasks_path: str, batch_no_filter: str) -> Dict[str, Any]:
@@ -2832,6 +3102,24 @@ async def api_batch_run_start(req: BatchRunControlRequest):
         if bool(req.archive_completed):
             cmd.append("--archive-completed")
             cmd.extend(["--archive-tasks-csv", archive_csv_rel])
+        if bool(req.ai_analyze):
+            cmd.append("--ai-analyze")
+        if bool(req.ai_analyze_only):
+            cmd.append("--ai-analyze-only")
+        ai_output_md = str(req.ai_analysis_output_md or "data/批量回测AI分析.md").strip()
+        if ai_output_md:
+            cmd.extend(["--ai-analysis-output-md", ai_output_md])
+        ai_system_prompt = str(req.ai_analysis_system_prompt or "").strip()
+        if ai_system_prompt:
+            cmd.extend(["--ai-analysis-system-prompt", ai_system_prompt])
+        ai_prompt = str(req.ai_analysis_prompt or "").strip()
+        if ai_prompt:
+            cmd.extend(["--ai-analysis-prompt", ai_prompt])
+        cmd.extend(["--ai-analysis-max-results", str(max(1, int(req.ai_analysis_max_results or 200)))])
+        cmd.extend(["--ai-analysis-max-strategies", str(max(1, int(req.ai_analysis_max_strategies or 80)))])
+        cmd.extend(["--ai-analysis-temperature", str(float(req.ai_analysis_temperature if req.ai_analysis_temperature is not None else -1.0))])
+        cmd.extend(["--ai-analysis-max-tokens", str(max(256, int(req.ai_analysis_max_tokens or 1400)))])
+        cmd.extend(["--ai-analysis-timeout-sec", str(max(10, int(req.ai_analysis_timeout_sec or 60)))])
         cwd = os.path.abspath(".")
         proc = subprocess.Popen(
             cmd,
@@ -2858,6 +3146,9 @@ async def api_batch_run_start(req: BatchRunControlRequest):
             batch_run_state["archive_tasks_csv"] = archive_csv_rel
             batch_run_state["max_tasks"] = max(0, int(req.max_tasks or 0))
             batch_run_state["parallel_workers"] = max(1, int(req.parallel_workers or 1))
+            batch_run_state["ai_analyze"] = bool(req.ai_analyze)
+            batch_run_state["ai_analyze_only"] = bool(req.ai_analyze_only)
+            batch_run_state["ai_analysis_output_md"] = ai_output_md
             batch_run_state["logs"] = [f"[start] {' '.join(cmd)}"]
         t1 = threading.Thread(target=_batch_stream_reader, args=(proc,), daemon=True)
         t2 = threading.Thread(target=_batch_waiter, args=(proc,), daemon=True)
@@ -2896,6 +3187,9 @@ async def api_batch_run_status(tasks_csv: Optional[str] = None, batch_no_filter:
                 "archive_tasks_csv": batch_run_state.get("archive_tasks_csv"),
                 "max_tasks": int(batch_run_state.get("max_tasks", 0) or 0),
                 "parallel_workers": int(batch_run_state.get("parallel_workers", 1) or 1),
+                "ai_analyze": bool(batch_run_state.get("ai_analyze", False)),
+                "ai_analyze_only": bool(batch_run_state.get("ai_analyze_only", False)),
+                "ai_analysis_output_md": str(batch_run_state.get("ai_analysis_output_md") or "data/批量回测AI分析.md"),
                 "pid": int(proc.pid) if proc is not None else None,
                 "logs": list(batch_run_state.get("logs") or []),
             }
@@ -2921,6 +3215,9 @@ async def api_batch_run_status(tasks_csv: Optional[str] = None, batch_no_filter:
                 "archive_tasks_csv": state_copy["archive_tasks_csv"],
                 "max_tasks": state_copy["max_tasks"],
                 "parallel_workers": state_copy["parallel_workers"],
+                "ai_analyze": state_copy["ai_analyze"],
+                "ai_analyze_only": state_copy["ai_analyze_only"],
+                "ai_analysis_output_md": state_copy["ai_analysis_output_md"],
             },
             "progress": snap,
             "log_tail": logs,

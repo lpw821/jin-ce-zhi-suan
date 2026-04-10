@@ -1249,80 +1249,11 @@
                     <div class="text-xs text-slate-400 mb-2">解析结果</div>
                     <pre id="blk-parse-result" class="h-48 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words">--</pre>
                 </div>
-                <div class="bg-slate-950 border border-slate-700 rounded p-3 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <div class="text-xs text-slate-300">批量回测看板（任务/结果/汇总）</div>
-                        <div class="flex items-center gap-2">
-                            <button onclick="loadBatchOverview()" class="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs border border-blue-500">刷新看板</button>
-                        </div>
-                    </div>
-                    <div id="batch-overview-status" class="text-[11px] text-slate-400 font-mono">待加载</div>
-                    <div id="batch-overview-chips" class="flex flex-wrap gap-2 text-[11px] font-mono"></div>
-                    <div class="bg-slate-900 border border-slate-700 rounded p-2 space-y-2">
-                        <div class="text-[11px] text-slate-300">批量执行控制</div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px]">
-                            <label class="text-slate-300">批次过滤
-                                <input id="batch-run-batch-filter" type="text" placeholder="如 BULL,BEAR" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                            </label>
-                            <label class="text-slate-300">最多执行
-                                <input id="batch-run-max-tasks" type="number" min="0" value="0" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                            </label>
-                            <label class="text-slate-300">并发进程
-                                <input id="batch-run-workers" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                            </label>
-                            <label class="text-slate-300">自动归档
-                                <div class="mt-1 flex items-center h-[30px] bg-slate-800 border border-slate-700 rounded px-2 py-1">
-                                    <input id="batch-run-archive-completed" type="checkbox" class="mr-2" />
-                                    <span class="text-slate-300">归档已完成任务</span>
-                                </div>
-                            </label>
-                        </div>
-                        <div class="text-[11px] text-slate-500">任务CSV固定使用 data/batch_tasks 目录，避免与历史任务混写。</div>
-                        <div class="flex items-center gap-2">
-                            <button id="batch-run-start-btn" onclick="startBatchRunFromUi()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs border border-emerald-500">开始批量执行</button>
-                            <button id="batch-run-stop-btn" onclick="stopBatchRunFromUi()" class="bg-rose-700 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-xs border border-rose-500">停止</button>
-                            <button onclick="refreshBatchRunStatus()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-500">刷新执行状态</button>
-                            <span id="batch-run-status" class="text-[11px] text-slate-400 font-mono">未启动</span>
-                        </div>
-                        <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
-                            <div id="batch-run-progress-bar" class="h-full bg-cyan-500 transition-all" style="width:0%"></div>
-                        </div>
-                        <div id="batch-run-progress-text" class="text-[11px] text-slate-400 font-mono">进度 --</div>
-                        <pre id="batch-run-log-tail" class="h-24 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <div class="text-[11px] text-slate-400 mb-1">批次执行进度</div>
-                            <div id="batch-overview-batches" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
-                        </div>
-                        <div>
-                            <div class="text-[11px] text-slate-400 mb-1">策略评分Top</div>
-                            <div id="batch-overview-strategies" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="flex items-center justify-between mb-1">
-                            <div class="text-[11px] text-slate-400">回测结果明细（最近）</div>
-                            <input id="batch-overview-filter" type="text" placeholder="筛选：策略ID/批次号/股票代码" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 font-mono w-64 max-w-full" oninput="renderBatchOverviewDetailTable()" />
-                        </div>
-                        <div class="max-h-56 overflow-auto border border-slate-700 rounded">
-                            <table class="w-full text-[11px] font-mono">
-                                <thead class="bg-slate-800 text-slate-300 sticky top-0 z-10">
-                                    <tr>
-                                        <th class="px-2 py-1 text-left">任务ID</th>
-                                        <th class="px-2 py-1 text-left">批次</th>
-                                        <th class="px-2 py-1 text-left">股票</th>
-                                        <th class="px-2 py-1 text-left">策略</th>
-                                        <th class="px-2 py-1 text-left">年化</th>
-                                        <th class="px-2 py-1 text-left">回撤</th>
-                                        <th class="px-2 py-1 text-left">胜率</th>
-                                        <th class="px-2 py-1 text-left">评分</th>
-                                        <th class="px-2 py-1 text-left">报告ID</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="batch-overview-table-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
-                            </table>
-                        </div>
+                <div class="bg-slate-950 border border-slate-700 rounded p-3 space-y-2">
+                    <div class="text-xs text-slate-300">批量回测看板已统一迁移到“回测看板”窗口。</div>
+                    <div class="text-[11px] text-slate-500">这里不再保留重复面板，点击下方按钮打开统一看板。</div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="openBatchDashboardModal()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-1.5 rounded text-xs border border-cyan-500">打开回测看板</button>
                     </div>
                 </div>
             </div>
@@ -1334,94 +1265,152 @@
                 <div class="text-white font-bold"><i class="fa-solid fa-list-check mr-2 text-cyan-300"></i>批量回测看板</div>
                 <button onclick="closeBatchDashboardModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">支持执行前任务预览、任务明细核对、批量启动/停止与进度跟踪。</div>
+            <div class="px-4 py-2 text-xs text-slate-400 border-b border-slate-700">统一批量回测看板（已从BLK工具区迁移）。</div>
             <div class="flex-1 p-4 overflow-y-auto space-y-3">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-2 text-xs">
-                    <label class="text-slate-300">任务CSV
-                        <input id="bdm-tasks-csv" type="text" value="data/batch_tasks/批量回测任务.csv" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                    </label>
-                    <label class="text-slate-300">批次过滤
-                        <input id="bdm-batch-filter" type="text" placeholder="如 BULL,BEAR" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                    </label>
-                    <label class="text-slate-300">状态过滤
-                        <select id="bdm-status-filter" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
-                            <option value="">全部</option>
-                            <option value="pending">待执行</option>
-                            <option value="retry">重试</option>
-                            <option value="running">运行中</option>
-                            <option value="success">成功</option>
-                            <option value="failed">失败</option>
-                        </select>
-                    </label>
-                    <label class="text-slate-300">预览上限
-                        <input id="bdm-preview-limit" type="number" min="20" max="3000" value="500" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
-                    </label>
-                    <div class="flex items-end">
-                        <button onclick="openBatchTaskCsvPicker()" class="w-full bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-2 rounded text-xs border border-indigo-500">选择任务CSV</button>
+                <div class="flex items-center justify-between">
+                    <div class="text-xs text-slate-300">批量回测看板（任务/结果/汇总）</div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="openBatchTaskCsvPicker()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-xs border border-indigo-500">选择任务CSV</button>
+                        <button onclick="loadBatchOverview()" class="bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-xs border border-blue-500">刷新看板</button>
                     </div>
                 </div>
-                <div class="flex items-center justify-end -mt-1">
-                    <button onclick="loadBatchTaskPreview()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-1.5 rounded text-xs border border-cyan-500">预览加载</button>
-                </div>
-                <div id="bdm-task-preview-status" class="text-[11px] text-slate-400 font-mono">待加载</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="border border-slate-700 rounded overflow-hidden">
-                        <div class="px-3 py-2 text-[11px] text-slate-300 bg-slate-800">任务列表（执行前核对）</div>
-                        <div class="max-h-64 overflow-auto">
-                            <table class="w-full text-[11px] font-mono">
-                                <thead class="bg-slate-800 text-slate-300 sticky top-0">
-                                    <tr>
-                                        <th class="px-2 py-1 text-left">任务ID</th>
-                                        <th class="px-2 py-1 text-left">批次</th>
-                                        <th class="px-2 py-1 text-left">股票</th>
-                                        <th class="px-2 py-1 text-left">策略</th>
-                                        <th class="px-2 py-1 text-left">区间</th>
-                                        <th class="px-2 py-1 text-left">状态</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="bdm-task-preview-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div class="border border-slate-700 rounded overflow-hidden">
-                        <div class="px-3 py-2 text-[11px] text-slate-300 bg-slate-800">任务明细（当前选中）</div>
-                        <div class="max-h-64 overflow-auto">
-                            <table class="w-full text-[11px] font-mono">
-                                <tbody id="bdm-task-detail-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+                <label class="text-xs text-slate-300 block">任务CSV
+                    <input id="batch-run-tasks-csv" type="text" value="data/batch_tasks/批量回测任务.csv" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                </label>
+                <div id="batch-overview-status" class="text-[11px] text-slate-400 font-mono">待加载</div>
+                <div id="batch-overview-chips" class="flex flex-wrap gap-2 text-[11px] font-mono"></div>
                 <div class="bg-slate-900 border border-slate-700 rounded p-2 space-y-2">
                     <div class="text-[11px] text-slate-300">批量执行控制</div>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px]">
+                        <label class="text-slate-300">批次过滤
+                            <input id="batch-run-batch-filter" type="text" placeholder="如 BULL,BEAR" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                        </label>
                         <label class="text-slate-300">最多执行
-                            <input id="bdm-max-tasks" type="number" min="0" value="0" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            <input id="batch-run-max-tasks" type="number" min="0" value="0" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
                         </label>
                         <label class="text-slate-300">并发进程
-                            <input id="bdm-workers" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            <input id="batch-run-workers" type="number" min="1" value="1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
                         </label>
                         <label class="text-slate-300">自动归档
                             <div class="mt-1 flex items-center h-[30px] bg-slate-800 border border-slate-700 rounded px-2 py-1">
-                                <input id="bdm-archive-completed" type="checkbox" class="mr-2" />
+                                <input id="batch-run-archive-completed" type="checkbox" class="mr-2" />
                                 <span class="text-slate-300">归档已完成任务</span>
                             </div>
                         </label>
-                        <label class="text-slate-300">归档文件
-                            <input id="bdm-archive-csv" type="text" value="data/batch_tasks/archive/批量回测任务.archive.csv" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                        <label class="text-slate-300">AI System Prompt
+                            <textarea id="batch-ai-system-prompt" rows="2" placeholder="留空使用配置或默认" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono"></textarea>
+                        </label>
+                        <label class="text-slate-300">AI User Prompt
+                            <textarea id="batch-ai-user-prompt" rows="2" placeholder="支持 {analysis_payload_json} 占位符，留空使用配置或默认" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono"></textarea>
                         </label>
                     </div>
+                    <div class="bg-slate-950/70 border border-slate-700 rounded p-2 space-y-2 text-[11px]">
+                        <div class="text-slate-300">策略范围与组合参数</div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <label class="text-slate-300">策略范围
+                                <select id="batch-strategy-scope-mode" onchange="toggleBatchStrategyScopeUi()" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+                                    <option value="selected" selected>主界面已选策略</option>
+                                    <option value="all_enabled">全部启用策略</option>
+                                    <option value="manual_pick">手动勾选策略</option>
+                                </select>
+                            </label>
+                            <div class="md:col-span-2 bg-slate-900 border border-slate-700 rounded px-2 py-1 flex items-center justify-between">
+                                <div id="batch-strategy-range-summary" class="text-slate-300 font-mono">策略范围：--</div>
+                                <div class="text-slate-500">先选策略范围，再配置组合参数</div>
+                            </div>
+                        </div>
+                        <div id="batch-manual-strategy-wrap" class="hidden bg-slate-900 border border-slate-700 rounded p-2">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-[11px] text-slate-300">手动勾选策略（多选）</div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="selectAllBatchManualStrategies(true)" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">全选</button>
+                                    <button onclick="selectAllBatchManualStrategies(false)" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">清空</button>
+                                    <button onclick="loadBatchStrategyCatalog()" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded text-[11px] border border-slate-500">刷新策略列表</button>
+                                </div>
+                            </div>
+                            <div id="batch-manual-strategy-select" class="w-full h-28 overflow-auto bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 font-mono space-y-1"></div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+                            <label class="text-slate-300">组合模式
+                                <select id="batch-combo-mode" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+                                    <option value="or">任一满足（OR）</option>
+                                    <option value="and">全部满足（AND）</option>
+                                    <option value="vote" selected>投票模式（VOTE）</option>
+                                </select>
+                            </label>
+                            <label class="text-slate-300">最小同向数
+                                <input id="batch-combo-min-agree" type="number" min="1" value="2" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                            </label>
+                            <label class="text-slate-300">平票策略
+                                <select id="batch-combo-tie-policy" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200">
+                                    <option value="skip" selected>跳过信号</option>
+                                    <option value="buy">按买入处理</option>
+                                    <option value="sell">按卖出处理</option>
+                                </select>
+                            </label>
+                            <div class="text-slate-300 flex items-end">
+                                <button onclick="applyBatchCombinationDefaultsFromCurrentStrategies()" class="w-full bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded border border-slate-500">使用默认值</button>
+                            </div>
+                        </div>
+                        <label class="text-slate-300 block">权重（示例：01=2,02=1）
+                            <input id="batch-combo-weights" type="text" placeholder="自动按策略范围回填，默认等权=1" class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono" />
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <button onclick="recommendBatchCombinationByAI()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-xs border border-indigo-500">AI推荐填写</button>
+                            <button onclick="syncBatchComboConfigToBacktestOps()" class="bg-cyan-700 hover:bg-cyan-600 text-white px-3 py-1.5 rounded text-xs border border-cyan-500">同步到回测组合参数</button>
+                            <span id="batch-combo-help-status" class="text-slate-400 font-mono">待配置</span>
+                        </div>
+                        <pre id="batch-combo-ai-advice" class="h-24 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
+                    </div>
+                    <div class="text-[11px] text-slate-500">任务CSV固定使用 data/batch_tasks 目录，避免与历史任务混写。</div>
                     <div class="flex items-center gap-2">
-                        <button id="bdm-start-btn" onclick="startBatchRunFromDashboard()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs border border-emerald-500">开始批量执行</button>
-                        <button id="bdm-stop-btn" onclick="stopBatchRunFromDashboard()" class="bg-rose-700 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-xs border border-rose-500">停止</button>
-                        <button onclick="refreshBatchRunStatusForDashboard()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-500">刷新执行状态</button>
-                        <span id="bdm-run-status" class="text-[11px] text-slate-400 font-mono">未启动</span>
+                        <button id="batch-run-start-btn" onclick="startBatchRunFromUi()" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs border border-emerald-500">开始批量执行</button>
+                        <button id="batch-ai-analyze-btn" onclick="startBatchAiAnalyzeFromUi()" class="bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-xs border border-indigo-500">生成AI分析</button>
+                        <button id="batch-run-stop-btn" onclick="stopBatchRunFromUi()" class="bg-rose-700 hover:bg-rose-600 text-white px-3 py-1.5 rounded text-xs border border-rose-500">停止</button>
+                        <button onclick="refreshBatchRunStatus()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs border border-slate-500">刷新执行状态</button>
+                        <span id="batch-run-status" class="text-[11px] text-slate-400 font-mono">未启动</span>
                     </div>
                     <div class="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
-                        <div id="bdm-run-progress-bar" class="h-full bg-cyan-500 transition-all" style="width:0%"></div>
+                        <div id="batch-run-progress-bar" class="h-full bg-cyan-500 transition-all" style="width:0%"></div>
                     </div>
-                    <div id="bdm-run-progress-text" class="text-[11px] text-slate-400 font-mono">进度 --</div>
-                    <pre id="bdm-run-log-tail" class="h-80 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
+                    <div id="batch-run-progress-text" class="text-[11px] text-slate-400 font-mono">进度 --</div>
+                    <pre id="batch-run-log-tail" class="h-24 overflow-auto text-[11px] text-slate-200 font-mono whitespace-pre-wrap break-words bg-slate-950 border border-slate-700 rounded p-2">--</pre>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <div class="text-[11px] text-slate-400 mb-1">批次执行进度</div>
+                        <div id="batch-overview-batches" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
+                    </div>
+                    <div>
+                        <div class="text-[11px] text-slate-400 mb-1">策略评分Top</div>
+                        <div id="batch-overview-strategies" class="space-y-1 max-h-36 overflow-auto pr-1"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-[11px] text-slate-400">回测结果明细（最近）</div>
+                        <input id="batch-overview-filter" type="text" placeholder="筛选：策略ID/批次号/股票代码" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 font-mono w-64 max-w-full" oninput="renderBatchOverviewDetailTable()" />
+                    </div>
+                    <div class="max-h-56 overflow-auto border border-slate-700 rounded">
+                        <table class="w-full text-[11px] font-mono">
+                            <thead class="bg-slate-800 text-slate-300 sticky top-0 z-10">
+                                <tr>
+                                    <th class="px-2 py-1 text-left">任务ID</th>
+                                    <th class="px-2 py-1 text-left">批次</th>
+                                    <th class="px-2 py-1 text-left">股票</th>
+                                    <th class="px-2 py-1 text-left">策略</th>
+                                    <th class="px-2 py-1 text-left">年化</th>
+                                    <th class="px-2 py-1 text-left">回撤</th>
+                                    <th class="px-2 py-1 text-left">胜率</th>
+                                    <th class="px-2 py-1 text-left">评分</th>
+                                    <th class="px-2 py-1 text-left">报告ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batch-overview-table-body" class="divide-y divide-slate-700 text-slate-200"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1891,6 +1880,7 @@
         let batchDashboardTaskRows = [];
         let batchDashboardTaskSelectedId = '';
         let batchTaskCsvListRows = [];
+        let batchComboRecommendPending = false;
         const DEFAULT_TASKS_CSV = 'data/batch_tasks/批量回测任务.csv';
         const DEFAULT_ARCHIVE_TASKS_CSV = 'data/batch_tasks/archive/批量回测任务.archive.csv';
         let liveRunning = false;
@@ -2595,6 +2585,7 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (allBox) allBox.checked = selectedStrategyIds.length === strategyCatalog.length && strategyCatalog.length > 0;
             renderStrategySelectionSummary();
             updateStrategyQuick(selectedStrategyIds.length === 1 ? String(selectedStrategyIds[0]) : 'all');
+            _refreshBatchStrategyRangeSummary();
         }
 
         function applyLiveStrategySelection(strategies) {
@@ -5391,8 +5382,10 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const modal = document.getElementById('batch-dashboard-modal');
             if (modal) modal.classList.remove('hidden');
             _applyBatchCsvDefaultsToUi();
-            loadBatchTaskPreview();
-            refreshBatchRunStatusForDashboard();
+            toggleBatchStrategyScopeUi();
+            applyBatchCombinationDefaultsFromCurrentStrategies(false);
+            loadBatchOverview();
+            refreshBatchRunStatus();
         }
 
         function closeBatchDashboardModal() {
@@ -5764,6 +5757,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         function _applyBatchCsvDefaultsToUi() {
             const blkTasks = document.getElementById('blk-tasks-csv');
             if (blkTasks && !String(blkTasks.value || '').trim()) blkTasks.value = DEFAULT_TASKS_CSV;
+            const batchRunTasks = document.getElementById('batch-run-tasks-csv');
+            if (batchRunTasks && !String(batchRunTasks.value || '').trim()) batchRunTasks.value = DEFAULT_TASKS_CSV;
             const bdmTasks = document.getElementById('bdm-tasks-csv');
             if (bdmTasks && !String(bdmTasks.value || '').trim()) bdmTasks.value = DEFAULT_TASKS_CSV;
             const bdmArchive = document.getElementById('bdm-archive-csv');
@@ -5775,6 +5770,261 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (picked.length) return picked;
             const all = Array.isArray(strategyCatalog) ? strategyCatalog.map(x => String(x?.id || '').trim()).filter(Boolean) : [];
             return all;
+        }
+
+        function _setBatchComboHelpStatus(text, level = 'info') {
+            const el = document.getElementById('batch-combo-help-status');
+            if (!el) return;
+            el.innerText = String(text || '');
+            el.className = `font-mono ${level === 'error' ? 'text-rose-300' : (level === 'success' ? 'text-emerald-300' : 'text-slate-400')}`;
+        }
+
+        function _parseComboWeightsText(weightsText) {
+            const weights = {};
+            const text = String(weightsText || '').trim();
+            if (!text) return weights;
+            text.split(/[,，;\n]+/).forEach(pair => {
+                const p = String(pair || '').trim();
+                if (!p) return;
+                const m = p.match(/^([^:=\s]+)\s*[:=]\s*([-+]?[0-9]*\.?[0-9]+)$/);
+                if (!m) return;
+                const sid = String(m[1] || '').trim();
+                const w = Number(m[2]);
+                if (!sid || !Number.isFinite(w)) return;
+                weights[sid] = w;
+            });
+            return weights;
+        }
+
+        function _serializeComboWeights(weightsObj, orderedIds = []) {
+            const obj = (weightsObj && typeof weightsObj === 'object') ? weightsObj : {};
+            const used = new Set();
+            const rows = [];
+            (Array.isArray(orderedIds) ? orderedIds : []).forEach(sidRaw => {
+                const sid = String(sidRaw || '').trim();
+                if (!sid || used.has(sid)) return;
+                const w = Number(obj[sid]);
+                if (!Number.isFinite(w)) return;
+                used.add(sid);
+                rows.push(`${sid}=${w}`);
+            });
+            Object.keys(obj).sort((a, b) => String(a).localeCompare(String(b))).forEach(sid => {
+                if (used.has(sid)) return;
+                const w = Number(obj[sid]);
+                if (!Number.isFinite(w)) return;
+                rows.push(`${sid}=${w}`);
+            });
+            return rows.join(',');
+        }
+
+        function _defaultBatchCombinationForStrategies(strategyIds) {
+            const ids = Array.isArray(strategyIds) ? strategyIds.map(x => String(x || '').trim()).filter(Boolean) : [];
+            const total = ids.length;
+            const useVote = total >= 2;
+            const mode = useVote ? 'vote' : 'or';
+            const minAgree = useVote ? Math.max(1, Math.ceil(total * 0.6)) : 1;
+            const tiePolicy = 'skip';
+            const weights = {};
+            ids.forEach(sid => { weights[sid] = 1; });
+            return {
+                enabled: true,
+                mode,
+                min_agree_count: minAgree,
+                tie_policy: tiePolicy,
+                weights
+            };
+        }
+
+        function _readBatchCombinationConfigFromUi() {
+            const mode = String(document.getElementById('batch-combo-mode')?.value || 'vote').trim().toLowerCase() || 'vote';
+            const minAgreeRaw = Number(document.getElementById('batch-combo-min-agree')?.value || 1);
+            const minAgree = Number.isFinite(minAgreeRaw) && minAgreeRaw >= 1 ? Math.floor(minAgreeRaw) : 1;
+            const tiePolicy = String(document.getElementById('batch-combo-tie-policy')?.value || 'skip').trim().toLowerCase() || 'skip';
+            const weightsText = String(document.getElementById('batch-combo-weights')?.value || '').trim();
+            return {
+                enabled: true,
+                mode,
+                min_agree_count: minAgree,
+                tie_policy: tiePolicy,
+                weights: _parseComboWeightsText(weightsText)
+            };
+        }
+
+        function _applyBatchCombinationConfigToUi(config, strategyIds = []) {
+            const cfg = (config && typeof config === 'object') ? config : {};
+            const mode = String(cfg.mode || 'vote').trim().toLowerCase() || 'vote';
+            const tiePolicy = String(cfg.tie_policy || 'skip').trim().toLowerCase() || 'skip';
+            const minAgreeRaw = Number(cfg.min_agree_count || 1);
+            const minAgree = Number.isFinite(minAgreeRaw) && minAgreeRaw >= 1 ? Math.floor(minAgreeRaw) : 1;
+            const modeEl = document.getElementById('batch-combo-mode');
+            const minEl = document.getElementById('batch-combo-min-agree');
+            const tieEl = document.getElementById('batch-combo-tie-policy');
+            const weightsEl = document.getElementById('batch-combo-weights');
+            if (modeEl) modeEl.value = mode;
+            if (minEl) minEl.value = String(minAgree);
+            if (tieEl) tieEl.value = tiePolicy;
+            if (weightsEl) weightsEl.value = _serializeComboWeights(cfg.weights || {}, strategyIds);
+        }
+
+        function _getManualPickedBatchStrategyIds() {
+            const wrap = document.getElementById('batch-manual-strategy-select');
+            if (!wrap) return [];
+            return Array.from(wrap.querySelectorAll('input[type="checkbox"][data-strategy-id]:checked') || [])
+                .map(el => String(el.getAttribute('data-strategy-id') || '').trim())
+                .filter(Boolean);
+        }
+
+        function _resolveBatchStrategyIdsForScope() {
+            const mode = String(document.getElementById('batch-strategy-scope-mode')?.value || 'selected').trim();
+            if (mode === 'manual_pick') {
+                const manual = _getManualPickedBatchStrategyIds();
+                if (manual.length) return manual;
+                return [];
+            }
+            if (mode === 'all_enabled') {
+                return (Array.isArray(strategyCatalog) ? strategyCatalog : [])
+                    .map(x => String(x?.id || '').trim())
+                    .filter(Boolean);
+            }
+            return _resolveBatchStrategyIdsFromUi();
+        }
+
+        function _refreshBatchStrategyRangeSummary() {
+            const el = document.getElementById('batch-strategy-range-summary');
+            if (!el) return;
+            const mode = String(document.getElementById('batch-strategy-scope-mode')?.value || 'selected').trim();
+            const ids = _resolveBatchStrategyIdsForScope();
+            const modeLabel = mode === 'all_enabled' ? '全部启用策略' : (mode === 'manual_pick' ? '手动勾选策略' : '主界面已选策略');
+            if (!ids.length) {
+                el.innerText = `策略范围：${modeLabel}（0个）`;
+                return;
+            }
+            const brief = ids.slice(0, 8).join(',');
+            const tail = ids.length > 8 ? ` ... +${ids.length - 8}` : '';
+            el.innerText = `策略范围：${modeLabel}（${ids.length}个） ${brief}${tail}`;
+        }
+
+        async function loadBatchStrategyCatalog() {
+            try {
+                if (!Array.isArray(strategyCatalog) || !strategyCatalog.length) {
+                    const res = await fetch('/api/strategies');
+                    const data = await res.json();
+                    if (res.ok && Array.isArray(data.strategies)) {
+                        strategyCatalog = data.strategies.map(item => ({
+                            id: String(item?.id || '').trim(),
+                            name: String(item?.name || '').trim(),
+                        })).filter(x => x.id);
+                    }
+                }
+            } catch (_) {}
+            const wrap = document.getElementById('batch-manual-strategy-select');
+            if (!wrap) return;
+            const existing = new Set(_getManualPickedBatchStrategyIds());
+            const rows = (Array.isArray(strategyCatalog) ? strategyCatalog : []).filter(x => String(x?.id || '').trim());
+            if (!rows.length) {
+                wrap.innerHTML = '<div class="text-slate-500">暂无策略</div>';
+                return;
+            }
+            wrap.innerHTML = rows.map(r => {
+                const sid = String(r.id);
+                const checked = existing.has(sid) ? 'checked' : '';
+                return `<label class="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-slate-700/50"><input type="checkbox" data-strategy-id="${sid}" ${checked} onchange="_refreshBatchStrategyRangeSummary()" /><span>${sid}${r.name ? ` | ${String(r.name)}` : ''}</span></label>`;
+            }).join('');
+            _refreshBatchStrategyRangeSummary();
+        }
+
+        function selectAllBatchManualStrategies(checked) {
+            const wrap = document.getElementById('batch-manual-strategy-select');
+            if (!wrap) return;
+            Array.from(wrap.querySelectorAll('input[type="checkbox"][data-strategy-id]') || []).forEach(el => {
+                el.checked = !!checked;
+            });
+            _refreshBatchStrategyRangeSummary();
+        }
+
+        function toggleBatchStrategyScopeUi() {
+            const mode = String(document.getElementById('batch-strategy-scope-mode')?.value || 'selected').trim();
+            const wrap = document.getElementById('batch-manual-strategy-wrap');
+            if (wrap) {
+                if (mode === 'manual_pick') wrap.classList.remove('hidden');
+                else wrap.classList.add('hidden');
+            }
+            if (mode === 'manual_pick') {
+                loadBatchStrategyCatalog();
+            }
+            _refreshBatchStrategyRangeSummary();
+        }
+
+        function applyBatchCombinationDefaultsFromCurrentStrategies(showNotice = true) {
+            const strategyIds = _resolveBatchStrategyIdsForScope();
+            if (!strategyIds.length) {
+                _setBatchComboHelpStatus('未找到策略范围，请先选择策略', 'error');
+                const adviceEl = document.getElementById('batch-combo-ai-advice');
+                if (adviceEl) adviceEl.innerText = '--';
+                return;
+            }
+            const cfg = _defaultBatchCombinationForStrategies(strategyIds);
+            _applyBatchCombinationConfigToUi(cfg, strategyIds);
+            if (showNotice) _setBatchComboHelpStatus(`默认组合参数已回填（${strategyIds.length}个策略）`, 'success');
+            _refreshBatchStrategyRangeSummary();
+        }
+
+        function syncBatchComboConfigToBacktestOps() {
+            const cfg = _readBatchCombinationConfigFromUi();
+            const modeEl = document.getElementById('bt-combo-mode');
+            const minEl = document.getElementById('bt-combo-min-agree');
+            const tieEl = document.getElementById('bt-combo-tie-policy');
+            const weightsEl = document.getElementById('bt-combo-weights');
+            if (modeEl) modeEl.value = String(cfg.mode || 'or');
+            if (minEl) minEl.value = String(cfg.min_agree_count || 1);
+            if (tieEl) tieEl.value = String(cfg.tie_policy || 'skip');
+            if (weightsEl) weightsEl.value = _serializeComboWeights(cfg.weights || {}, _resolveBatchStrategyIdsForScope());
+            _setBatchComboHelpStatus('已同步到“回测组合参数”面板', 'success');
+        }
+
+        async function recommendBatchCombinationByAI() {
+            if (batchComboRecommendPending) return;
+            const strategyIds = _resolveBatchStrategyIdsForScope();
+            if (!strategyIds.length) {
+                _setBatchComboHelpStatus('请先选择策略范围', 'error');
+                return;
+            }
+            const adviceEl = document.getElementById('batch-combo-ai-advice');
+            batchComboRecommendPending = true;
+            _setBatchComboHelpStatus('AI分析中...', 'info');
+            try {
+                const profiles = strategyIds.map(sid => {
+                    const meta = (Array.isArray(strategyCatalog) ? strategyCatalog : []).find(x => String(x?.id || '') === String(sid));
+                    return {
+                        strategy_id: sid,
+                        strategy_name: String(meta?.name || ''),
+                        score_hint: Number(latestStrategyScores?.[sid])
+                    };
+                });
+                const res = await fetch('/api/batch/combination/recommend', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        strategy_ids: strategyIds,
+                        strategy_profiles: profiles
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || 'AI推荐失败');
+                }
+                const cfg = data.recommendation && typeof data.recommendation === 'object' ? data.recommendation : {};
+                _applyBatchCombinationConfigToUi(cfg, strategyIds);
+                const analysisText = String(data.analysis || '').trim();
+                if (adviceEl) adviceEl.innerText = analysisText || JSON.stringify(cfg, null, 2);
+                const sourceText = String(data.source || '').trim();
+                _setBatchComboHelpStatus(`AI推荐已回填${sourceText ? `（${sourceText}）` : ''}`, 'success');
+            } catch (e) {
+                _setBatchComboHelpStatus(`AI推荐失败: ${e}`, 'error');
+                if (adviceEl) adviceEl.innerText = String(e || '');
+            } finally {
+                batchComboRecommendPending = false;
+            }
         }
 
         function toggleBlkStrategySourceUi() {
@@ -5943,8 +6193,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         async function loadBatchOverview() {
             _setBatchOverviewStatus('看板加载中...');
             try {
-                const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
-                const tasksInput = document.getElementById('blk-tasks-csv');
+                const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('batch-run-tasks-csv')?.value || document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+                const tasksInput = document.getElementById('batch-run-tasks-csv') || document.getElementById('blk-tasks-csv');
                 if (tasksInput) tasksInput.value = tasksCsv;
                 const params = new URLSearchParams({
                     tasks_csv: tasksCsv,
@@ -6053,14 +6303,17 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         function applySelectedBatchTaskCsv(path) {
             try {
                 const normalized = _normalizeTaskCsvPath(path, DEFAULT_TASKS_CSV);
+                const runInput = document.getElementById('batch-run-tasks-csv');
                 const bdmInput = document.getElementById('bdm-tasks-csv');
                 const blkInput = document.getElementById('blk-tasks-csv');
+                if (runInput) runInput.value = normalized;
                 if (bdmInput) bdmInput.value = normalized;
                 if (blkInput) blkInput.value = normalized;
                 const statusEl = document.getElementById('bdm-task-preview-status');
                 if (statusEl) statusEl.innerText = `已选择任务文件：${normalized}`;
                 closeBatchTaskCsvPicker();
-                loadBatchTaskPreview();
+                loadBatchOverview();
+                refreshBatchRunStatus();
             } catch (e) {
                 const statusEl = document.getElementById('batch-task-csv-list-status');
                 if (statusEl) statusEl.innerText = `路径不合法: ${e}`;
@@ -6172,6 +6425,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const archiveTasksCsv = _normalizeArchiveCsvPath(String(document.getElementById('bdm-archive-csv')?.value || DEFAULT_ARCHIVE_TASKS_CSV).trim(), DEFAULT_ARCHIVE_TASKS_CSV);
             const archiveInput = document.getElementById('bdm-archive-csv');
             if (archiveInput) archiveInput.value = archiveTasksCsv;
+            const aiSystemPrompt = String(document.getElementById('bdm-ai-system-prompt')?.value || '').trim();
+            const aiUserPrompt = String(document.getElementById('bdm-ai-user-prompt')?.value || '').trim();
             return {
                 tasks_csv: tasksCsv,
                 results_csv: 'data/批量回测结果.csv',
@@ -6187,7 +6442,12 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 poll_seconds: 3,
                 status_log_seconds: 90,
                 max_wait_seconds: 7200,
-                retry_sleep_seconds: 3
+                retry_sleep_seconds: 3,
+                ai_analyze: false,
+                ai_analyze_only: false,
+                ai_analysis_system_prompt: aiSystemPrompt,
+                ai_analysis_prompt: aiUserPrompt,
+                ai_analysis_output_md: 'data/批量回测AI分析.md'
             };
         }
 
@@ -6209,8 +6469,10 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 else statusEl.innerText = '未启动';
             }
             const startBtn = document.getElementById('bdm-start-btn');
+            const aiBtn = document.getElementById('bdm-ai-analyze-btn');
             const stopBtn = document.getElementById('bdm-stop-btn');
             if (startBtn) startBtn.disabled = running;
+            if (aiBtn) aiBtn.disabled = running;
             if (stopBtn) stopBtn.disabled = !running;
             const logEl = document.getElementById('bdm-run-log-tail');
             const logs = Array.isArray(data?.log_tail) ? data.log_tail : [];
@@ -6247,9 +6509,11 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             if (batchStartPendingDashboard) return;
             const statusEl = document.getElementById('bdm-run-status');
             const startBtn = document.getElementById('bdm-start-btn');
+            const aiBtn = document.getElementById('bdm-ai-analyze-btn');
             const stopBtn = document.getElementById('bdm-stop-btn');
             batchStartPendingDashboard = true;
             if (startBtn) startBtn.disabled = true;
+            if (aiBtn) aiBtn.disabled = true;
             if (stopBtn) stopBtn.disabled = false;
             if (statusEl) statusEl.innerText = '提交启动中...';
             try {
@@ -6269,6 +6533,42 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             } catch (e) {
                 if (statusEl) statusEl.innerText = `启动失败: ${e}`;
                 if (startBtn) startBtn.disabled = false;
+                if (aiBtn) aiBtn.disabled = false;
+            } finally {
+                batchStartPendingDashboard = false;
+            }
+        }
+
+        async function startBatchAiAnalyzeFromDashboard() {
+            if (batchStartPendingDashboard) return;
+            const statusEl = document.getElementById('bdm-run-status');
+            const startBtn = document.getElementById('bdm-start-btn');
+            const aiBtn = document.getElementById('bdm-ai-analyze-btn');
+            const stopBtn = document.getElementById('bdm-stop-btn');
+            batchStartPendingDashboard = true;
+            if (startBtn) startBtn.disabled = true;
+            if (aiBtn) aiBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
+            if (statusEl) statusEl.innerText = '提交AI分析中...';
+            try {
+                const payload = _collectBatchRunPayloadFromDashboard();
+                payload.ai_analyze_only = true;
+                payload.ai_analyze = true;
+                const res = await fetch('/api/batch/run/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || 'AI分析启动失败');
+                }
+                if (statusEl) statusEl.innerText = `AI分析已启动 pid=${data.pid || '--'}`;
+                refreshBatchRunStatusForDashboard();
+            } catch (e) {
+                if (statusEl) statusEl.innerText = `AI分析启动失败: ${e}`;
+                if (startBtn) startBtn.disabled = false;
+                if (aiBtn) aiBtn.disabled = false;
             } finally {
                 batchStartPendingDashboard = false;
             }
@@ -6295,8 +6595,8 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         }
 
         function _collectBatchRunPayload() {
-            const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
-            const tasksInput = document.getElementById('blk-tasks-csv');
+            const tasksCsv = _normalizeTaskCsvPath(String(document.getElementById('batch-run-tasks-csv')?.value || document.getElementById('blk-tasks-csv')?.value || DEFAULT_TASKS_CSV).trim(), DEFAULT_TASKS_CSV);
+            const tasksInput = document.getElementById('batch-run-tasks-csv') || document.getElementById('blk-tasks-csv');
             if (tasksInput) tasksInput.value = tasksCsv;
             const batchNoFilter = _normalizeBatchFilterText(String(document.getElementById('batch-run-batch-filter')?.value || '').trim());
             const batchFilterInput = document.getElementById('batch-run-batch-filter');
@@ -6305,6 +6605,11 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             const parallelWorkers = _readIntInput('batch-run-workers', { min: 1, max: 64, fallback: 1 });
             const archiveCompleted = !!document.getElementById('batch-run-archive-completed')?.checked;
             const archiveTasksCsv = DEFAULT_ARCHIVE_TASKS_CSV;
+            const aiSystemPrompt = String(document.getElementById('batch-ai-system-prompt')?.value || '').trim();
+            const aiUserPrompt = String(document.getElementById('batch-ai-user-prompt')?.value || '').trim();
+            const strategyScopeMode = String(document.getElementById('batch-strategy-scope-mode')?.value || 'selected').trim();
+            const comboStrategyIds = _resolveBatchStrategyIdsForScope();
+            const combinationConfig = _readBatchCombinationConfigFromUi();
             return {
                 tasks_csv: tasksCsv,
                 results_csv: 'data/批量回测结果.csv',
@@ -6320,7 +6625,15 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 poll_seconds: 3,
                 status_log_seconds: 90,
                 max_wait_seconds: 7200,
-                retry_sleep_seconds: 3
+                retry_sleep_seconds: 3,
+                ai_analyze: false,
+                ai_analyze_only: false,
+                ai_analysis_system_prompt: aiSystemPrompt,
+                ai_analysis_prompt: aiUserPrompt,
+                ai_analysis_output_md: 'data/批量回测AI分析.md',
+                strategy_scope_mode: strategyScopeMode,
+                strategy_ids: comboStrategyIds,
+                combination_config: combinationConfig
             };
         }
 
@@ -6354,8 +6667,10 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
                 _setBatchRunStatusText('未启动', 'info');
             }
             const startBtn = document.getElementById('batch-run-start-btn');
+            const aiBtn = document.getElementById('batch-ai-analyze-btn');
             const stopBtn = document.getElementById('batch-run-stop-btn');
             if (startBtn) startBtn.disabled = running;
+            if (aiBtn) aiBtn.disabled = running;
             if (stopBtn) stopBtn.disabled = !running;
             const logEl = document.getElementById('batch-run-log-tail');
             const logs = Array.isArray(data?.log_tail) ? data.log_tail : [];
@@ -6394,9 +6709,11 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
         async function startBatchRunFromUi() {
             if (batchStartPendingUi) return;
             const startBtn = document.getElementById('batch-run-start-btn');
+            const aiBtn = document.getElementById('batch-ai-analyze-btn');
             const stopBtn = document.getElementById('batch-run-stop-btn');
             batchStartPendingUi = true;
             if (startBtn) startBtn.disabled = true;
+            if (aiBtn) aiBtn.disabled = true;
             if (stopBtn) stopBtn.disabled = false;
             _setBatchRunStatusText('提交启动中...');
             try {
@@ -6416,6 +6733,42 @@ class GeneratedStrategyTemplate(BaseImplementedStrategy):
             } catch (e) {
                 _setBatchRunStatusText(`启动失败: ${e}`, 'error');
                 if (startBtn) startBtn.disabled = false;
+                if (aiBtn) aiBtn.disabled = false;
+            } finally {
+                batchStartPendingUi = false;
+            }
+        }
+
+        async function startBatchAiAnalyzeFromUi() {
+            if (batchStartPendingUi) return;
+            const startBtn = document.getElementById('batch-run-start-btn');
+            const aiBtn = document.getElementById('batch-ai-analyze-btn');
+            const stopBtn = document.getElementById('batch-run-stop-btn');
+            batchStartPendingUi = true;
+            if (startBtn) startBtn.disabled = true;
+            if (aiBtn) aiBtn.disabled = true;
+            if (stopBtn) stopBtn.disabled = false;
+            _setBatchRunStatusText('提交AI分析中...');
+            try {
+                const payload = _collectBatchRunPayload();
+                payload.ai_analyze_only = true;
+                payload.ai_analyze = true;
+                const res = await fetch('/api/batch/run/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok || String(data.status || '').toLowerCase() !== 'success') {
+                    throw new Error(data.msg || 'AI分析启动失败');
+                }
+                _setBatchRunStatusText(`AI分析已启动 pid=${data.pid || '--'}`, 'success');
+                logMessage('SYSTEM', `批量AI分析已启动 pid=${data.pid || '--'}`, 'warning');
+                refreshBatchRunStatus();
+            } catch (e) {
+                _setBatchRunStatusText(`AI分析启动失败: ${e}`, 'error');
+                if (startBtn) startBtn.disabled = false;
+                if (aiBtn) aiBtn.disabled = false;
             } finally {
                 batchStartPendingUi = false;
             }

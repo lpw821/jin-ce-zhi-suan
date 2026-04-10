@@ -40,10 +40,10 @@ class ConfigLoader:
         ).strip()
         if private_config_path and (not os.path.isabs(private_config_path)):
             private_config_path = os.path.join(project_root, private_config_path)
-        private_config = self._load_json_config(private_config_path, silent=True)
+        private_config_raw = self._load_json_config(private_config_path, silent=True)
         private_override_paths = self.resolve_private_override_paths(base_config)
-        private_config = self._filter_private_override_config(private_config, private_override_paths)
-        private_passthrough = self._extract_private_passthrough_config(private_config)
+        private_config = self._filter_private_override_config(private_config_raw, private_override_paths)
+        private_passthrough = self._extract_private_passthrough_config(private_config_raw)
         merged_private = self._deep_merge_dict(private_config, private_passthrough)
         self._config = self._deep_merge_dict(base_config, merged_private)
 
@@ -194,8 +194,19 @@ class ConfigLoader:
         out = {}
         for path in self._default_private_passthrough_paths:
             if self._path_exists(payload, path):
-                self._set_path_value(out, path, self._get_path_value(payload, path, None))
+                value = self._get_path_value(payload, path, None)
+                if self._is_effective_private_passthrough_value(value):
+                    self._set_path_value(out, path, value)
         return out
+
+    def _is_effective_private_passthrough_value(self, value):
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, dict, tuple, set)):
+            return len(value) > 0
+        return True
 
     def get(self, key, default=None):
         keys = key.split('.')
@@ -232,22 +243,26 @@ class ConfigLoader:
         full_cfg = self.to_dict()
         secret_paths = self.resolve_private_override_paths(full_cfg)
         private_only_paths = set(self._default_private_passthrough_paths)
+        private_path = self._private_config_path(full_cfg)
+        private_exists = os.path.exists(private_path)
+        existing_public_cfg = self._load_json_config(target_path, silent=True)
+        if not isinstance(existing_public_cfg, dict):
+            existing_public_cfg = {}
 
         public_cfg = json.loads(json.dumps(full_cfg, ensure_ascii=False))
         for path in secret_paths:
             if self._path_exists(public_cfg, path):
                 self._set_path_value(public_cfg, path, "")
         for path in private_only_paths:
-            if self._path_exists(public_cfg, path):
-                cur_val = self._get_path_value(public_cfg, path, None)
-                if isinstance(cur_val, list):
-                    self._set_path_value(public_cfg, path, [])
+            if private_exists:
+                if self._path_exists(existing_public_cfg, path):
+                    self._set_path_value(public_cfg, path, self._get_path_value(existing_public_cfg, path, None))
                 else:
                     self._delete_path_value(public_cfg, path)
+                continue
 
         self._write_json_file(target_path, public_cfg)
 
-        private_path = self._private_config_path(full_cfg)
         private_cfg = self._load_json_config(private_path, silent=True)
         if not isinstance(private_cfg, dict):
             private_cfg = {}
@@ -266,6 +281,8 @@ class ConfigLoader:
                 private_changed = True
 
         for path in private_only_paths:
+            if not private_exists:
+                continue
             val = self._get_path_value(full_cfg, path, None)
             old_val = self._get_path_value(private_cfg, path, None)
             if val is None:

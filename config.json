@@ -1,7 +1,7 @@
 {
   "system": {
-    "mode": "live",
-    "enable_live": true,
+    "mode": "backtest",
+    "enable_live": false,
     "initial_capital": 1000000,
     "log_level": "INFO",
     "server_host": "0.0.0.0",
@@ -22,7 +22,7 @@
     ]
   },
   "data_provider": {
-    "source": "tushare",
+    "source": "default",
     "enable_fallback": false,
     "tushare_token": "",
     "default_api_key": "",
@@ -95,9 +95,7 @@
     "write_mode": "api",
     "direct_db_source": "mysql"
   },
-  "targets": [
-
-  ],
+  "targets": [],
   "strategies": {
     "active_ids": []
   },
@@ -110,7 +108,7 @@
   },
   "trading_cost": {
     "commission_rate": 0.00025,
-    "min_commission": 5,
+    "min_commission": 5.0,
     "stamp_duty": 0.001,
     "transfer_fee": 0
   },
