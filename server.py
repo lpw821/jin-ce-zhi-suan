@@ -55,7 +55,8 @@ from src.utils.postgres_provider import PostgresProvider
 from src.utils.history_sync_service import HistoryDiffSyncService, TABLE_INTERVAL_MAP, DEFAULT_SYNC_TABLES
 from src.utils.backtest_baseline import apply_backtest_baseline
 from src.utils.webhook_notifier import WebhookNotifier
-from src.tdx.formula_compiler import compile_tdx_formula
+from src.tdx.formula_compiler import compile_tdx_formula, get_tdx_compile_capabilities
+from src.tdx.terminal_bridge import TdxTerminalBridge
 from src.utils.blk_loader import parse_blk_file, parse_blk_text
 
 import logging
@@ -1707,6 +1708,15 @@ class TdxCompileRequest(BaseModel):
     kline_type: Optional[str] = None
 
 
+class TdxValidateRequest(BaseModel):
+    formula_text: str
+    strategy_id: Optional[str] = None
+    strategy_name: Optional[str] = None
+    kline_type: Optional[str] = None
+    strict: bool = True
+    include_code: bool = False
+
+
 class TdxImportRequest(BaseModel):
     formula_text: str
     strategy_id: Optional[str] = None
@@ -1718,9 +1728,64 @@ class TdxImportRequest(BaseModel):
     immutable: Optional[bool] = None
 
 
+class TdxImportPackItem(BaseModel):
+    formula_text: str
+    strategy_id: Optional[str] = None
+    strategy_name: Optional[str] = None
+    kline_type: Optional[str] = None
+    analysis_text: Optional[str] = None
+    source: Optional[str] = None
+    protect_level: Optional[str] = None
+    immutable: Optional[bool] = None
+
+
+class TdxImportPackRequest(BaseModel):
+    items: list[TdxImportPackItem]
+    stop_on_error: bool = False
+    skip_existing: bool = True
+
+
 class TdxGenerateFormulaRequest(BaseModel):
     prompt: str
     kline_type: Optional[str] = None
+
+
+class TdxTerminalConnectRequest(BaseModel):
+    adapter: Optional[str] = "mock"
+    host: Optional[str] = "127.0.0.1"
+    port: Optional[int] = 7708
+    account_id: Optional[str] = ""
+    api_key: Optional[str] = ""
+    api_secret: Optional[str] = ""
+    sign_method: Optional[str] = "none"
+    base_url: Optional[str] = ""
+    timeout_sec: Optional[int] = 10
+    retry_count: Optional[int] = 0
+    hook_enabled: Optional[bool] = True
+    hook_level: Optional[str] = "INFO"
+    hook_logger_name: Optional[str] = "TdxBrokerGatewayHook"
+    hook_log_payload: Optional[bool] = True
+
+
+class TdxTerminalSubscribeRequest(BaseModel):
+    symbols: List[str]
+
+
+class TdxTerminalOrderRequest(BaseModel):
+    symbol: str
+    direction: str
+    qty: int
+    price: Optional[float] = 0.0
+
+
+class TdxTerminalBrokerLoginRequest(BaseModel):
+    username: str
+    password: str
+    initial_cash: Optional[float] = 1000000.0
+
+
+class TdxTerminalBrokerCancelRequest(BaseModel):
+    order_id: str
 
 
 class BlkParseRequest(BaseModel):
@@ -2519,12 +2584,38 @@ async def api_strategy_manager_next_id():
         return {"status": "error", "msg": str(e), "strategy_id": ""}
 
 
+def _tdx_error(msg: str, error_code: str, details: Optional[dict] = None) -> Dict[str, Any]:
+    return {
+        "status": "error",
+        "msg": str(msg or ""),
+        "error_code": str(error_code or "TDX_UNKNOWN_ERROR"),
+        "details": details if isinstance(details, dict) else {},
+    }
+
+
+_TDX_TERMINAL_BRIDGE: Optional[TdxTerminalBridge] = None
+
+
+def _get_tdx_terminal_bridge() -> TdxTerminalBridge:
+    global _TDX_TERMINAL_BRIDGE
+    if _TDX_TERMINAL_BRIDGE is not None:
+        return _TDX_TERMINAL_BRIDGE
+    cfg = ConfigLoader.reload()
+    adapter = str(
+        cfg.get("tdx_terminal.adapter", "")
+        or os.environ.get("TDX_TERMINAL_ADAPTER", "")
+        or "mock"
+    ).strip().lower() or "mock"
+    _TDX_TERMINAL_BRIDGE = TdxTerminalBridge(adapter_type=adapter)
+    return _TDX_TERMINAL_BRIDGE
+
+
 @app.post("/api/tdx/generate_formula")
 async def api_tdx_generate_formula(req: TdxGenerateFormulaRequest):
     try:
         prompt_text = str(req.prompt or "").strip()
         if not prompt_text:
-            return {"status": "error", "msg": "prompt is required"}
+            return _tdx_error("prompt is required", "TDX_PROMPT_REQUIRED")
         tf = _normalize_kline_type(req.kline_type)
         payload = _build_tdx_formula_by_llm(prompt_text, tf)
         return {
@@ -2536,7 +2627,7 @@ async def api_tdx_generate_formula(req: TdxGenerateFormulaRequest):
         }
     except Exception as e:
         logger.error(f"/api/tdx/generate_formula failed: {e}", exc_info=True)
-        return {"status": "error", "msg": str(e)}
+        return _tdx_error(str(e), "TDX_GENERATE_FAILED")
 
 
 @app.post("/api/tdx/compile")
@@ -2544,7 +2635,7 @@ async def api_tdx_compile(req: TdxCompileRequest):
     try:
         formula_text = str(req.formula_text or "").strip()
         if not formula_text:
-            return {"status": "error", "msg": "formula_text is required"}
+            return _tdx_error("formula_text is required", "TDX_FORMULA_REQUIRED")
         sid = str(req.strategy_id or "").strip() or next_custom_strategy_id()
         name = str(req.strategy_name or "").strip() or f"通达信策略{sid}"
         tf = _normalize_kline_type(req.kline_type)
@@ -2562,61 +2653,332 @@ async def api_tdx_compile(req: TdxCompileRequest):
             "kline_type": tf,
             "warmup_bars": payload.get("warmup_bars"),
             "used_functions": payload.get("used_functions", []),
+            "compile_meta": payload.get("compile_meta", {}),
             "code": payload.get("code", ""),
         }
     except Exception as e:
         logger.error(f"/api/tdx/compile failed: {e}", exc_info=True)
-        return {"status": "error", "msg": str(e)}
+        return _tdx_error(str(e), "TDX_COMPILE_FAILED")
+
+
+@app.post("/api/tdx/validate_formula")
+async def api_tdx_validate_formula(req: TdxValidateRequest):
+    try:
+        formula_text = str(req.formula_text or "").strip()
+        if not formula_text:
+            return _tdx_error("formula_text is required", "TDX_FORMULA_REQUIRED")
+        sid = str(req.strategy_id or "").strip() or "TDX_VALIDATE"
+        name = str(req.strategy_name or "").strip() or f"通达信策略{sid}"
+        tf = _normalize_kline_type(req.kline_type)
+        payload = compile_tdx_formula(
+            formula_text=formula_text,
+            strategy_id=sid,
+            strategy_name=name,
+            kline_type=tf,
+            strict=bool(req.strict),
+        )
+        resp = {
+            "status": "success",
+            "valid": True,
+            "strategy_id": payload.get("strategy_id"),
+            "strategy_name": payload.get("strategy_name"),
+            "class_name": payload.get("class_name"),
+            "kline_type": tf,
+            "warmup_bars": payload.get("warmup_bars"),
+            "used_functions": payload.get("used_functions", []),
+            "compile_meta": payload.get("compile_meta", {}),
+            "warnings": [],
+        }
+        if bool(req.include_code):
+            resp["code"] = payload.get("code", "")
+        return resp
+    except Exception as e:
+        logger.error(f"/api/tdx/validate_formula failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_VALIDATE_FAILED")
+
+
+def _import_single_tdx_formula(req_like: Any, skip_existing: bool = False) -> Dict[str, Any]:
+    formula_text = str(getattr(req_like, "formula_text", "") or "").strip()
+    if not formula_text:
+        raise ValueError("formula_text is required")
+    sid = str(getattr(req_like, "strategy_id", "") or "").strip() or next_custom_strategy_id()
+    if _find_strategy_meta(sid) is not None:
+        if bool(skip_existing):
+            return {
+                "status": "skipped",
+                "strategy_id": sid,
+                "msg": f"strategy id already exists: {sid}",
+            }
+        raise ValueError(f"strategy id already exists: {sid}")
+    sname = str(getattr(req_like, "strategy_name", "") or "").strip() or f"通达信策略{sid}"
+    tf = _normalize_kline_type(getattr(req_like, "kline_type", None))
+    payload = compile_tdx_formula(
+        formula_text=formula_text,
+        strategy_id=sid,
+        strategy_name=sname,
+        kline_type=tf,
+    )
+    code_text = _apply_kline_type_to_code(str(payload.get("code", "")), tf)
+    class_name = _extract_first_class_name(code_text) or str(payload.get("class_name", "")).strip()
+    analysis_text = str(getattr(req_like, "analysis_text", "") or "").strip() or "由通达信公式自动转换并导入。"
+    add_custom_strategy({
+        "id": sid,
+        "name": sname,
+        "class_name": class_name,
+        "code": code_text,
+        "template_text": formula_text,
+        "analysis_text": analysis_text,
+        "strategy_intent": intent_engine.from_human_input(f"通达信公式转换策略: {sname}").to_dict(),
+        "source": str(getattr(req_like, "source", "human") or "human").strip() or "human",
+        "kline_type": tf,
+        "depends_on": [],
+        "protect_level": str(getattr(req_like, "protect_level", "custom") or "custom").strip() or "custom",
+        "immutable": bool(getattr(req_like, "immutable", False)) if getattr(req_like, "immutable", None) is not None else False,
+        "raw_requirement_title": "通达信公式",
+        "raw_requirement": formula_text
+    })
+    return {
+        "status": "success",
+        "strategy_id": sid,
+        "strategy_name": sname,
+        "class_name": class_name,
+        "kline_type": tf,
+        "warmup_bars": payload.get("warmup_bars"),
+        "used_functions": payload.get("used_functions", []),
+        "compile_meta": payload.get("compile_meta", {}),
+    }
 
 
 @app.post("/api/tdx/import_strategy")
 async def api_tdx_import_strategy(req: TdxImportRequest):
     try:
-        formula_text = str(req.formula_text or "").strip()
-        if not formula_text:
-            return {"status": "error", "msg": "formula_text is required"}
-        sid = str(req.strategy_id or "").strip() or next_custom_strategy_id()
-        if _find_strategy_meta(sid) is not None:
-            return {"status": "error", "msg": f"strategy id already exists: {sid}"}
-        sname = str(req.strategy_name or "").strip() or f"通达信策略{sid}"
-        tf = _normalize_kline_type(req.kline_type)
-        payload = compile_tdx_formula(
-            formula_text=formula_text,
-            strategy_id=sid,
-            strategy_name=sname,
-            kline_type=tf,
-        )
-        code_text = _apply_kline_type_to_code(str(payload.get("code", "")), tf)
-        class_name = _extract_first_class_name(code_text) or str(payload.get("class_name", "")).strip()
-        analysis_text = str(req.analysis_text or "").strip() or "由通达信公式自动转换并导入。"
-        add_custom_strategy({
-            "id": sid,
-            "name": sname,
-            "class_name": class_name,
-            "code": code_text,
-            "template_text": formula_text,
-            "analysis_text": analysis_text,
-            "strategy_intent": intent_engine.from_human_input(f"通达信公式转换策略: {sname}").to_dict(),
-            "source": str(req.source or "human").strip() or "human",
-            "kline_type": tf,
-            "depends_on": [],
-            "protect_level": str(req.protect_level or "custom").strip() or "custom",
-            "immutable": bool(req.immutable) if req.immutable is not None else False,
-            "raw_requirement_title": "通达信公式",
-            "raw_requirement": formula_text
-        })
-        return {
-            "status": "success",
-            "strategy_id": sid,
-            "strategy_name": sname,
-            "class_name": class_name,
-            "kline_type": tf,
-            "warmup_bars": payload.get("warmup_bars"),
-            "used_functions": payload.get("used_functions", []),
-        }
+        return _import_single_tdx_formula(req_like=req, skip_existing=False)
     except Exception as e:
         logger.error(f"/api/tdx/import_strategy failed: {e}", exc_info=True)
-        return {"status": "error", "msg": str(e)}
+        return _tdx_error(str(e), "TDX_IMPORT_FAILED")
+
+
+@app.post("/api/tdx/import_pack")
+async def api_tdx_import_pack(req: TdxImportPackRequest):
+    try:
+        items = list(req.items or [])
+        if not items:
+            return _tdx_error("items is required", "TDX_ITEMS_REQUIRED")
+        imported: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = []
+        failures: List[Dict[str, Any]] = []
+        for idx, item in enumerate(items):
+            try:
+                row = _import_single_tdx_formula(req_like=item, skip_existing=bool(req.skip_existing))
+                row = dict(row or {})
+                row["index"] = idx
+                if str(row.get("status", "")).strip() == "skipped":
+                    skipped.append(row)
+                else:
+                    imported.append(row)
+            except Exception as e:
+                failures.append({
+                    "index": idx,
+                    "strategy_id": str(getattr(item, "strategy_id", "") or "").strip(),
+                    "msg": str(e),
+                })
+                if bool(req.stop_on_error):
+                    break
+        if failures and (not imported) and (not skipped):
+            status = "error"
+        elif failures:
+            status = "partial_success"
+        else:
+            status = "success"
+        return {
+            "status": status,
+            "total": len(items),
+            "imported_count": len(imported),
+            "skipped_count": len(skipped),
+            "failed_count": len(failures),
+            "imported": imported,
+            "skipped": skipped,
+            "failures": failures,
+        }
+    except Exception as e:
+        logger.error(f"/api/tdx/import_pack failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_IMPORT_PACK_FAILED")
+
+
+@app.get("/api/tdx/capabilities")
+async def api_tdx_capabilities():
+    try:
+        return {
+            "status": "success",
+            "capabilities": get_tdx_compile_capabilities(),
+        }
+    except Exception as e:
+        logger.error(f"/api/tdx/capabilities failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_CAPABILITIES_FAILED")
+
+
+@app.get("/api/tdx/terminal/status")
+async def api_tdx_terminal_status():
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        return {"status": "success", "terminal": bridge.status()}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/status failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_STATUS_FAILED")
+
+
+@app.post("/api/tdx/terminal/connect")
+async def api_tdx_terminal_connect(req: TdxTerminalConnectRequest):
+    try:
+        global _TDX_TERMINAL_BRIDGE
+        adapter = str(req.adapter or "").strip().lower() or "mock"
+        current = _get_tdx_terminal_bridge()
+        if str(current.adapter_type).lower() != adapter:
+            _TDX_TERMINAL_BRIDGE = TdxTerminalBridge(adapter_type=adapter)
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.connect(
+            connection={
+                "host": str(req.host or "").strip(),
+                "port": int(req.port or 0),
+                "account_id": str(req.account_id or "").strip(),
+                "api_key": str(req.api_key or "").strip(),
+                "api_secret": str(req.api_secret or "").strip(),
+                "sign_method": str(req.sign_method or "none").strip().lower() or "none",
+                "base_url": str(req.base_url or "").strip(),
+                "timeout_sec": int(req.timeout_sec or 10),
+                "retry_count": int(req.retry_count or 0),
+                "hook_enabled": bool(req.hook_enabled) if req.hook_enabled is not None else True,
+                "hook_level": str(req.hook_level or "INFO").strip().upper() or "INFO",
+                "hook_logger_name": str(req.hook_logger_name or "TdxBrokerGatewayHook").strip() or "TdxBrokerGatewayHook",
+                "hook_log_payload": bool(req.hook_log_payload) if req.hook_log_payload is not None else True,
+            }
+        )
+        return {"status": "success", "terminal": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/connect failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_CONNECT_FAILED")
+
+
+@app.post("/api/tdx/terminal/disconnect")
+async def api_tdx_terminal_disconnect():
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.disconnect()
+        return {"status": "success", "terminal": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/disconnect failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_DISCONNECT_FAILED")
+
+
+@app.post("/api/tdx/terminal/subscribe")
+async def api_tdx_terminal_subscribe(req: TdxTerminalSubscribeRequest):
+    try:
+        symbols = [str(x or "").strip().upper() for x in (req.symbols or []) if str(x or "").strip()]
+        if not symbols:
+            return _tdx_error("symbols is required", "TDX_TERMINAL_SYMBOLS_REQUIRED")
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.subscribe_quotes(symbols=symbols)
+        return {"status": "success", **payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/subscribe failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_SUBSCRIBE_FAILED")
+
+
+@app.get("/api/tdx/terminal/quotes")
+async def api_tdx_terminal_quotes():
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        quotes = bridge.list_quotes()
+        return {"status": "success", "count": len(quotes), "quotes": quotes}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/quotes failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_QUOTES_FAILED")
+
+
+@app.post("/api/tdx/terminal/place_order")
+async def api_tdx_terminal_place_order(req: TdxTerminalOrderRequest):
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.place_order(
+            order={
+                "symbol": str(req.symbol or "").strip().upper(),
+                "direction": str(req.direction or "").strip().upper(),
+                "qty": int(req.qty or 0),
+                "price": float(req.price or 0.0),
+            }
+        )
+        return {"status": "success", "order": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/place_order failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_ORDER_FAILED")
+
+
+@app.get("/api/tdx/terminal/orders")
+async def api_tdx_terminal_orders(limit: int = 50):
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        rows = bridge.list_orders(limit=max(1, int(limit or 50)))
+        return {"status": "success", "count": len(rows), "orders": rows}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/orders failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_ORDERS_FAILED")
+
+
+@app.post("/api/tdx/terminal/broker/login")
+async def api_tdx_terminal_broker_login(req: TdxTerminalBrokerLoginRequest):
+    try:
+        username = str(req.username or "").strip()
+        password = str(req.password or "").strip()
+        if not username or not password:
+            return _tdx_error("username and password are required", "TDX_TERMINAL_BROKER_AUTH_REQUIRED")
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.broker_login(
+            credentials={
+                "username": username,
+                "password": password,
+                "initial_cash": float(req.initial_cash or 1000000.0),
+            }
+        )
+        return {"status": "success", "login": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/broker/login failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_BROKER_LOGIN_FAILED")
+
+
+@app.get("/api/tdx/terminal/broker/balance")
+async def api_tdx_terminal_broker_balance():
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.broker_get_balance()
+        return {"status": "success", "balance": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/broker/balance failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_BROKER_BALANCE_FAILED")
+
+
+@app.get("/api/tdx/terminal/broker/positions")
+async def api_tdx_terminal_broker_positions():
+    try:
+        bridge = _get_tdx_terminal_bridge()
+        rows = bridge.broker_get_positions()
+        return {"status": "success", "count": len(rows), "positions": rows}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/broker/positions failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_BROKER_POSITIONS_FAILED")
+
+
+@app.post("/api/tdx/terminal/broker/cancel_order")
+async def api_tdx_terminal_broker_cancel_order(req: TdxTerminalBrokerCancelRequest):
+    try:
+        order_id = str(req.order_id or "").strip()
+        if not order_id:
+            return _tdx_error("order_id is required", "TDX_TERMINAL_ORDER_ID_REQUIRED")
+        bridge = _get_tdx_terminal_bridge()
+        payload = bridge.broker_cancel_order(order_id=order_id)
+        return {"status": "success", "cancel_result": payload}
+    except Exception as e:
+        logger.error(f"/api/tdx/terminal/broker/cancel_order failed: {e}", exc_info=True)
+        return _tdx_error(str(e), "TDX_TERMINAL_BROKER_CANCEL_FAILED")
 
 
 @app.post("/api/blk/parse")

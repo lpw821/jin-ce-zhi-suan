@@ -272,3 +272,234 @@ curl -X POST http://localhost:8000/api/control/stop
 | 参数名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `event_ids` | string[] | 否 | 仅清理指定ID；不传则清空失败队列 |
+
+---
+
+## 9. 通达信与BLK能力
+
+### 9.1 查询通达信编译能力
+
+- **接口地址:** `/api/tdx/capabilities`
+- **请求方法:** `GET`
+
+**响应示例:**
+```json
+{
+  "status": "success",
+  "capabilities": {
+    "supported_functions": ["ABS", "BARSLAST", "COUNT", "CROSS", "EMA", "HHV", "IF", "LLV", "MA", "MAX", "MIN", "REF", "SMA", "STD", "SUM", "UP", "WMA"],
+    "series_alias": {"C": "close", "O": "open_", "H": "high", "L": "low", "V": "vol", "VOL": "vol", "AMOUNT": "amount"},
+    "operators": ["=", "<>", "AND", "OR", "NOT"],
+    "statement_separators": [";", "\\n"]
+  }
+}
+```
+
+### 9.2 编译通达信公式
+
+- **接口地址:** `/api/tdx/compile`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**请求参数 (JSON):**
+
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `formula_text` | string | 是 | 通达信公式文本 |
+| `strategy_id` | string | 否 | 策略ID，缺省自动生成 |
+| `strategy_name` | string | 否 | 策略名称，缺省自动生成 |
+| `kline_type` | string | 否 | K线周期，默认 `1min` |
+
+**响应重点字段:**
+
+- `code`: 生成的Python策略代码
+- `used_functions`: 识别到且支持的函数
+- `compile_meta.unsupported_functions`: 不支持函数列表（为空表示通过）
+
+### 9.3 校验通达信公式
+
+- **接口地址:** `/api/tdx/validate_formula`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**请求参数 (JSON):**
+
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `formula_text` | string | 是 | 通达信公式文本 |
+| `strategy_id` | string | 否 | 仅用于校验上下文标识 |
+| `strategy_name` | string | 否 | 仅用于校验上下文标识 |
+| `kline_type` | string | 否 | K线周期，默认 `1min` |
+| `strict` | bool | 否 | 是否严格模式，默认 `true` |
+| `include_code` | bool | 否 | 是否返回编译后的代码，默认 `false` |
+
+**响应重点字段:**
+
+- `valid`: 校验结果，成功时为 `true`
+- `compile_meta`: 包含 `called/supported/unsupported` 函数集合
+- `warnings`: 预留告警列表
+
+### 9.4 导入通达信策略
+
+- **接口地址:** `/api/tdx/import_strategy`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**说明:**
+
+- 会先执行编译校验，再写入策略仓库
+- 若存在不支持函数，接口返回 `status=error`
+
+### 9.5 批量导入通达信策略
+
+- **接口地址:** `/api/tdx/import_pack`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**请求参数 (JSON):**
+
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `items` | object[] | 是 | 待导入公式列表，元素字段同 `/api/tdx/import_strategy` |
+| `stop_on_error` | bool | 否 | 遇到失败是否立即停止，默认 `false` |
+| `skip_existing` | bool | 否 | 策略ID冲突是否跳过，默认 `true` |
+
+**响应重点字段:**
+
+- `status`: `success` / `partial_success` / `error`
+- `imported_count` / `skipped_count` / `failed_count`
+- `failures`: 失败明细（含 `index` 与 `msg`）
+
+**错误返回结构（TDX接口统一）:**
+
+- `status`: 固定为 `error`
+- `msg`: 兼容历史的错误消息
+- `error_code`: 稳定错误码（前端建议优先使用）
+- `details`: 结构化细节对象（无细节时为空对象）
+
+常见 `error_code`：
+
+- `TDX_PROMPT_REQUIRED`
+- `TDX_FORMULA_REQUIRED`
+- `TDX_ITEMS_REQUIRED`
+- `TDX_COMPILE_FAILED`
+- `TDX_IMPORT_FAILED`
+- `TDX_IMPORT_PACK_FAILED`
+- `TDX_CAPABILITIES_FAILED`
+
+### 9.6 解析BLK
+
+- **接口地址:** `/api/blk/parse`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**请求参数 (JSON):**
+
+| 参数名 | 类型 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `file_path` | string | 否 | 服务端可访问的BLK文件路径 |
+| `content` | string | 否 | 直接传BLK文本 |
+| `encoding` | string | 否 | `auto/gbk/utf-8` |
+| `normalize_symbol` | bool | 否 | 是否规范化为 `600000.SH` 格式 |
+
+### 9.7 BLK导入标的池
+
+- **接口地址:** `/api/blk/import_stock_pool`
+- **请求方法:** `POST`
+- **Content-Type:** `application/json`
+
+**请求参数补充:**
+
+- `import_mode`: `append` 或 `replace`
+- `market_tag` / `industry_tag` / `size_tag` / `enabled`
+- `stock_pool_csv`: 自定义标的池路径
+
+### 9.8 通达信终端桥接（Mock/适配层骨架）
+
+用于终端级对接前置实现，支持 `mock`、`pytdx`、`broker_gateway` 适配器。
+
+- `GET /api/tdx/terminal/status`: 查询桥接状态
+- `POST /api/tdx/terminal/connect`: 建立桥接连接（支持切换 `adapter`）
+- `POST /api/tdx/terminal/disconnect`: 断开桥接
+- `POST /api/tdx/terminal/subscribe`: 订阅行情代码列表
+- `GET /api/tdx/terminal/quotes`: 查询当前订阅行情快照
+- `POST /api/tdx/terminal/place_order`: 提交模拟下单
+- `GET /api/tdx/terminal/orders`: 查询模拟订单列表
+- `POST /api/tdx/terminal/broker/login`: 券商登录
+- `GET /api/tdx/terminal/broker/balance`: 查询资金
+- `GET /api/tdx/terminal/broker/positions`: 查询持仓
+- `POST /api/tdx/terminal/broker/cancel_order`: 撤单
+
+`connect` 请求体示例：
+
+```json
+{
+  "adapter": "broker_gateway",
+  "host": "127.0.0.1",
+  "port": 9001,
+  "account_id": "demo",
+  "api_key": "your_key",
+  "api_secret": "your_secret",
+  "sign_method": "hmac_sha256",
+  "base_url": "http://broker-gateway.local",
+  "timeout_sec": 10,
+  "retry_count": 1
+}
+```
+
+`place_order` 请求体示例：
+
+```json
+{
+  "symbol": "600000.SH",
+  "direction": "BUY",
+  "qty": 100,
+  "price": 10.2
+}
+```
+
+说明：
+
+- `pytdx` 适配器用于通达信行情连接，依赖 `pytdx` 包与可用的行情服务器地址。
+- `pytdx` 不支持交易下单；调用 `place_order` 会返回错误，需接入券商交易网关完成实单。
+- `broker_gateway` 为券商交易网关骨架适配器，当前提供统一下单与订单查询契约，便于后续对接真实柜台/OMS。
+- `broker_gateway` 默认是骨架实现（不直连真实券商），用于先打通接口与流程编排。
+- 签名/鉴权钩子：`api_key`、`api_secret`、`sign_method`（目前支持 `none/hmac_sha256`），下单与登录请求会附带签名元信息。
+- HTTP网关模板参数：`base_url`、`timeout_sec`、`retry_count`，用于对接真实券商网关时的请求控制。
+- 推荐流程：`connect -> broker/login -> place_order -> broker/cancel_order`。
+- 可通过环境变量 `TDX_TERMINAL_ADAPTER` 或配置 `tdx_terminal.adapter` 设置默认适配器（如 `pytdx` / `broker_gateway`）。
+
+生产可接券商配置模板（建议）：
+
+`config.json`（非敏感）：
+
+```json
+{
+  "private_config_path": "data/private.config.json",
+  "tdx_terminal": {
+    "adapter": "broker_gateway",
+    "host": "127.0.0.1",
+    "port": 9001,
+    "account_id": "acct-demo",
+    "base_url": "https://broker-gateway.example.com",
+    "timeout_sec": 10,
+    "retry_count": 1,
+    "sign_method": "hmac_sha256",
+    "hook_enabled": true,
+    "hook_level": "INFO",
+    "hook_logger_name": "TdxBrokerGatewayHook",
+    "hook_log_payload": true
+  }
+}
+```
+
+`private_config_path` 指向文件（敏感）：
+
+```json
+{
+  "tdx_terminal": {
+    "api_key": "replace-with-real-key",
+    "api_secret": "replace-with-real-secret"
+  }
+}
+```

@@ -16,6 +16,15 @@ _FUNC_MAP = {
     "CROSS": "self._CROSS",
     "IF": "self._IF",
     "BARSLAST": "self._BARSLAST",
+    "EXIST": "self._EXIST",
+    "EVERY": "self._EVERY",
+    "BETWEEN": "self._BETWEEN",
+    "VALUEWHEN": "self._VALUEWHEN",
+    "FILTER": "self._FILTER",
+    "BARSSINCE": "self._BARSSINCE",
+    "BARSCOUNT": "self._BARSCOUNT",
+    "HHVBARS": "self._HHVBARS",
+    "LLVBARS": "self._LLVBARS",
     "UP": "self._UP",
     "DOWN": "self._DOWN",
     "ABS": "np.abs",
@@ -32,6 +41,15 @@ _SERIES_ALIAS = {
     "VOL": "vol",
     "AMOUNT": "amount",
 }
+
+
+def get_tdx_compile_capabilities() -> Dict[str, Any]:
+    return {
+        "supported_functions": sorted(list(_FUNC_MAP.keys())),
+        "series_alias": dict(_SERIES_ALIAS),
+        "operators": ["=", "<>", "AND", "OR", "NOT"],
+        "statement_separators": [";", "\\n"],
+    }
 
 
 def _sanitize_identifier(name: str, fallback: str = "x") -> str:
@@ -108,7 +126,7 @@ def _split_statements(formula_text: str) -> List[str]:
 
 def _estimate_warmup_bars(formula_text: str) -> int:
     nums = re.findall(
-        r"\b(?:MA|EMA|SMA|WMA|HHV|LLV|SUM|COUNT|STD|REF)\s*\([^,\)]*,\s*(\d+)\s*\)",
+        r"\b(?:MA|EMA|SMA|WMA|HHV|LLV|SUM|COUNT|STD|REF|EXIST|EVERY|FILTER|HHVBARS|LLVBARS)\s*\([^,\)]*,\s*(\d+)\s*\)",
         str(formula_text or ""),
         flags=re.IGNORECASE,
     )
@@ -117,13 +135,35 @@ def _estimate_warmup_bars(formula_text: str) -> int:
     return max(60, min(base * 3, 2000))
 
 
-def _used_functions(formula_text: str) -> List[str]:
+def _detect_called_functions(formula_text: str) -> List[str]:
+    chunks = _split_statements(formula_text)
     found = []
-    upper_text = str(formula_text or "").upper()
-    for fn in _FUNC_MAP:
-        if re.search(rf"\b{fn}\s*\(", upper_text):
+    seen = set()
+    ignore_tokens = {"AND", "OR", "NOT"}
+    for st in chunks:
+        for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", st):
+            fn = str(m.group(1) or "").strip().upper()
+            if (not fn) or (fn in ignore_tokens) or (fn in seen):
+                continue
+            seen.add(fn)
             found.append(fn)
     return found
+
+
+def _used_functions(formula_text: str) -> List[str]:
+    called = _detect_called_functions(formula_text)
+    return [fn for fn in called if fn in _FUNC_MAP]
+
+
+def _compile_meta(formula_text: str) -> Dict[str, Any]:
+    called = _detect_called_functions(formula_text)
+    supported = sorted(list(_FUNC_MAP.keys()))
+    unsupported = [fn for fn in called if fn not in _FUNC_MAP]
+    return {
+        "called_functions": called,
+        "supported_functions": supported,
+        "unsupported_functions": unsupported,
+    }
 
 
 def _build_strategy_code(
@@ -196,6 +236,87 @@ class {class_name}(BaseImplementedStrategy):
                 out[i] = np.nan if last_true < 0 else float(i - last_true)
         return pd.Series(out, index=c.index)
 
+    def _EXIST(self, cond, n):
+        c = pd.Series(cond).fillna(False).astype(int)
+        return c.rolling(int(n)).max().fillna(0).astype(int) > 0
+
+    def _EVERY(self, cond, n):
+        c = pd.Series(cond).fillna(False).astype(int)
+        return c.rolling(int(n)).min().fillna(0).astype(int) > 0
+
+    def _BETWEEN(self, x, a, b):
+        sx = pd.Series(x)
+        sa = pd.Series(a)
+        sb = pd.Series(b)
+        return (sx >= sa) & (sx <= sb)
+
+    def _VALUEWHEN(self, cond, x):
+        c = pd.Series(cond).fillna(False).astype(bool)
+        sx = pd.Series(x)
+        out = sx.where(c)
+        return out.ffill()
+
+    def _FILTER(self, cond, n):
+        c = pd.Series(cond).fillna(False).astype(bool)
+        span = max(0, int(n))
+        out = np.zeros(len(c), dtype=bool)
+        cooldown = 0
+        for i, v in enumerate(c.tolist()):
+            if cooldown > 0:
+                cooldown -= 1
+                continue
+            if bool(v):
+                out[i] = True
+                cooldown = span
+        return pd.Series(out, index=c.index)
+
+    def _BARSSINCE(self, cond):
+        c = pd.Series(cond).fillna(False).astype(bool)
+        out = np.full(len(c), np.nan, dtype=float)
+        first_true = -1
+        for i, v in enumerate(c.tolist()):
+            if first_true < 0 and bool(v):
+                first_true = i
+            if first_true >= 0:
+                out[i] = float(i - first_true)
+        return pd.Series(out, index=c.index)
+
+    def _BARSCOUNT(self, series):
+        s = pd.Series(series)
+        return pd.Series(np.arange(1, len(s) + 1), index=s.index, dtype=float)
+
+    def _HHVBARS(self, series, n):
+        s = pd.Series(series)
+        w = max(1, int(n))
+        out = np.full(len(s), np.nan, dtype=float)
+        vals = s.to_numpy()
+        for i in range(len(vals)):
+            start = max(0, i - w + 1)
+            win = vals[start:i + 1]
+            if len(win) <= 0:
+                continue
+            if np.all(np.isnan(win)):
+                continue
+            local_idx = int(np.nanargmax(win))
+            out[i] = float(i - (start + local_idx))
+        return pd.Series(out, index=s.index)
+
+    def _LLVBARS(self, series, n):
+        s = pd.Series(series)
+        w = max(1, int(n))
+        out = np.full(len(s), np.nan, dtype=float)
+        vals = s.to_numpy()
+        for i in range(len(vals)):
+            start = max(0, i - w + 1)
+            win = vals[start:i + 1]
+            if len(win) <= 0:
+                continue
+            if np.all(np.isnan(win)):
+                continue
+            local_idx = int(np.nanargmin(win))
+            out[i] = float(i - (start + local_idx))
+        return pd.Series(out, index=s.index)
+
     def on_bar(self, kline):
         code = str(kline.get("code", "") or "")
         if not code:
@@ -257,10 +378,15 @@ def compile_tdx_formula(
     strategy_id: str,
     strategy_name: str,
     kline_type: str = "1min",
+    strict: bool = True,
 ) -> Dict[str, Any]:
     statements = _split_statements(formula_text)
     if not statements:
         raise ValueError("formula_text is empty")
+    meta = _compile_meta(formula_text)
+    unsupported = list(meta.get("unsupported_functions", []))
+    if strict and unsupported:
+        raise ValueError(f"unsupported tdx functions: {', '.join(unsupported)}")
 
     sid = str(strategy_id or "").strip() or "TDX001"
     sname = str(strategy_name or "").strip() or f"通达信策略{sid}"
@@ -307,5 +433,9 @@ def compile_tdx_formula(
         "code": code_text,
         "warmup_bars": warmup_bars,
         "used_functions": _used_functions(formula_text),
+        "compile_meta": {
+            **meta,
+            "strict": bool(strict),
+        },
         "last_signal_var": final_signal_var,
     }
